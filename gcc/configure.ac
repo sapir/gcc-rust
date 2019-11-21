@@ -461,7 +461,19 @@ if test "$GCC" = yes; then
 fi
 AC_SUBST(aliasing_flags)
 
+sem_interpos_flags=
+if test "$GCC" = yes; then
+  saved_CXXFLAGS="$CXXFLAGS"
 
+  CXXFLAGS="$CXXFLAGS -fno-semantic-interposition"
+  AC_MSG_CHECKING(whether the compiler supports -fno-semantic-interposition)
+  AC_COMPILE_IFELSE([AC_LANG_SOURCE([])],
+    [AC_MSG_RESULT([yes]); sem_interpos_flags='-fno-semantic-interposition'],
+    [AC_MSG_RESULT([no])])
+
+  CXXFLAGS="$saved_CXXFLAGS"
+fi
+AC_SUBST(sem_interpos_flags)
 
 # ---------------------
 # Warnings and checking

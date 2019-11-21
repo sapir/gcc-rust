@@ -188,6 +188,8 @@ NOEXCEPTION_FLAGS = @noexception_flags@
 
 ALIASING_FLAGS = @aliasing_flags@
 
+SEM_INTERPOS_FLAGS = @sem_interpos_flags@
+
 # This is set by --disable-maintainer-mode (default) to "#"
 # FIXME: 'MAINT' will always be set to an empty string, no matter if
 # --disable-maintainer-mode is used or not.  This is because the
@@ -1786,8 +1788,18 @@ ifneq ($(PLUGIN_MAKEFRAGS),)
 include $(PLUGIN_MAKEFRAGS)
 endif
 
-# Add PLUGIN_CFLAGS to objects that belong to in-tree plugins
-PLUGIN_CFLAGS = -fPIC
+# Define PLUGIN_CFLAGS and add it to objects that belong to in-tree plugins
+#
+# .o files for plugins need to built as position-independent code, hence -fPIC
+#
+# We use -fno-semantic-interposition if available (via SEM_INTERPOS_FLAGS)
+# since it fixes an annoying wart when debugging the plugin, where every
+# attempt to set a breakpoint on a function sets two breakpoints: on the
+# "funcname@plt", and on the function itself, making stepping through the
+# code more awkward than it ought to be.  Presumably this also leads
+# to faster plugin code.
+
+PLUGIN_CFLAGS = -fPIC $(SEM_INTERPOS_FLAGS)
 $(foreach file,$(ALL_HOST_PLUGIN_OBJS),$(eval CFLAGS-$(file) += $(PLUGIN_CFLAGS)))
 
 #
