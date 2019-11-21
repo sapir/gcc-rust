@@ -1786,6 +1786,10 @@ ifneq ($(PLUGIN_MAKEFRAGS),)
 include $(PLUGIN_MAKEFRAGS)
 endif
 
+# Add PLUGIN_CFLAGS to objects that belong to in-tree plugins
+PLUGIN_CFLAGS = -fPIC
+$(foreach file,$(ALL_HOST_PLUGIN_OBJS),$(eval CFLAGS-$(file) += $(PLUGIN_CFLAGS)))
+
 #
 
 # -----------------------------
