@@ -34,7 +34,9 @@ namespace {
 
 ////////////////////////////////////////////////////////////////////////////
 
-/* A state machine for detecting misuses of the malloc/free API.  */
+/* A state machine for detecting misuses of the malloc/free API.
+
+   See sm-malloc.dot for an overview (keep this in-sync with that file).  */
 
 class malloc_state_machine : public state_machine
 {
@@ -615,7 +617,7 @@ malloc_state_machine::on_stmt (sm_context *sm_ctxt,
 
 	  arg = sm_ctxt->get_readable_tree (arg);
 
-	  /* start/unchecked/nonnull -> free.  */
+	  /* start/unchecked/nonnull -> freed.  */
 	  sm_ctxt->on_transition (node, stmt, arg, m_start, m_freed);
 	  sm_ctxt->on_transition (node, stmt, arg, m_unchecked, m_freed);
 	  sm_ctxt->on_transition (node, stmt, arg, m_nonnull, m_freed);
@@ -623,7 +625,7 @@ malloc_state_machine::on_stmt (sm_context *sm_ctxt,
 	  /* Keep state "null" as-is, rather than transitioning to "free";
 	     we don't want want to complain about double-free of NULL.  */
 
-	  /* free -> stop, with warning.  */
+	  /* freed -> stop, with warning.  */
 	  sm_ctxt->warn_for_state (node, stmt, arg, m_freed,
 				   new double_free (*this, arg));
 	  sm_ctxt->on_transition (node, stmt, arg, m_freed, m_stop);
