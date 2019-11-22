@@ -854,6 +854,7 @@ c_strict_warn
 strict_warn
 c_loose_warn
 loose_warn
+sem_interpos_flags
 aliasing_flags
 CPP
 EGREP
@@ -6737,6 +6738,28 @@ rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
 fi
 
 
+sem_interpos_flags=
+if test "$GCC" = yes; then
+  saved_CXXFLAGS="$CXXFLAGS"
+
+  CXXFLAGS="$CXXFLAGS -fno-semantic-interposition"
+  { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether the compiler supports -fno-semantic-interposition" >&5
+$as_echo_n "checking whether the compiler supports -fno-semantic-interposition... " >&6; }
+  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+_ACEOF
+if ac_fn_cxx_try_compile "$LINENO"; then :
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: yes" >&5
+$as_echo "yes" >&6; }; sem_interpos_flags='-fno-semantic-interposition'
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+
+  CXXFLAGS="$saved_CXXFLAGS"
+fi
 
 
 # ---------------------
@@ -18948,7 +18971,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 18951 "configure"
+#line 18974 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
@@ -19054,7 +19077,7 @@ else
   lt_dlunknown=0; lt_dlno_uscore=1; lt_dlneed_uscore=2
   lt_status=$lt_dlunknown
   cat > conftest.$ac_ext <<_LT_EOF
-#line 19057 "configure"
+#line 19080 "configure"
 #include "confdefs.h"
 
 #if HAVE_DLFCN_H
