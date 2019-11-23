@@ -1,4 +1,4 @@
-/* { dg-options "--analyzer -fdiagnostics-path-format=none -fanalyzer-verbosity=1" } */
+/* { dg-additional-options "-fdiagnostics-path-format=none -fanalyzer-verbosity=1" } */
 
 #include <stdlib.h>
 

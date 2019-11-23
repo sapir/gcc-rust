@@ -1,6 +1,6 @@
 /* Example of a multilevel wrapper around malloc, with an unchecked write.  */
 
-/* { dg-options "--analyzer -fdiagnostics-show-line-numbers -fdiagnostics-nn-line-numbers -fdiagnostics-path-format=inline-events -fanalyzer-checker=malloc -fdiagnostics-show-caret -fanalyzer-verbose-state-changes" } */
+/* { dg-additional-options "-fdiagnostics-show-line-numbers -fdiagnostics-nn-line-numbers -fdiagnostics-path-format=inline-events -fanalyzer-checker=malloc -fdiagnostics-show-caret -fanalyzer-verbose-state-changes" } */
 
 #include <stdlib.h>
 

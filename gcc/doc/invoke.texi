@@ -289,7 +289,7 @@ Objective-C and Objective-C++ Dialects}.
 
 @item Warning Options
 @xref{Warning Options,,Options to Request or Suppress Warnings}.
-@gccoptlist{--analyzer -fsyntax-only  -fmax-errors=@var{n}  -Wpedantic @gol
+@gccoptlist{-fanalyzer -fsyntax-only  -fmax-errors=@var{n}  -Wpedantic @gol
 -pedantic-errors @gol
 -w  -Wextra  -Wall  -Waddress  -Waddress-of-packed-member @gol
 -Waggregate-return  -Waligned-new @gol
@@ -6428,7 +6428,7 @@ equivalent to @option{-Walloca-larger-than=}@samp{SIZE_MAX} or larger.
 @item -Wno-analyzer-double-fclose
 @opindex Wanalyzer-double-fclose
 @opindex Wno-analyzer-double-fclose
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-double-fclose} to disable it.
 
 This diagnostic warns for paths through the code in which a @code{FILE *}
@@ -6437,7 +6437,7 @@ can have @code{fclose} called on it more than once.
 @item -Wno-analyzer-double-free
 @opindex Wanalyzer-double-free
 @opindex Wno-analyzer-double-free
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-double-free} to disable it.
 
 This diagnostic warns for paths through the code in which a pointer
@@ -6446,7 +6446,7 @@ can have @code{free} called on it more than once.
 @item -Wno-analyzer-exposure-through-output-file
 @opindex Wanalyzer-exposure-through-output-file
 @opindex Wno-analyzer-exposure-through-output-file
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-exposure-through-output-file}
 to disable it.
 
@@ -6457,7 +6457,7 @@ security-sensitive value is written to an output file
 @item -Wno-analyzer-file-leak
 @opindex Wanalyzer-file-leak
 @opindex Wno-analyzer-file-leak
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-file-leak}
 to disable it.
 
@@ -6467,7 +6467,7 @@ This diagnostic warns for paths through the code in which a
 @item -Wno-analyzer-free-of-non-heap
 @opindex Wanalyzer-free-of-non-heap
 @opindex Wno-analyzer-free-of-non-heap
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-free-of-non-heap}
 to disable it.
 
@@ -6477,7 +6477,7 @@ is called on a non-heap pointer (e.g. an on-stack buffer, or a global).
 @item -Wno-analyzer-malloc-leak
 @opindex Wanalyzer-malloc-leak
 @opindex Wno-analyzer-malloc-leak
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-malloc-leak}
 to disable it.
 
@@ -6487,7 +6487,7 @@ pointer allocated via @code{malloc} is leaked.
 @item -Wno-analyzer-possible-null-argument
 @opindex Wanalyzer-possible-null-argument
 @opindex Wno-analyzer-possible-null-argument
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-possible-null-argument} to disable it.
 
 This diagnostic warns for paths through the code in which a
@@ -6498,7 +6498,7 @@ value.
 @item -Wno-analyzer-possible-null-dereference
 @opindex Wanalyzer-possible-null-dereference
 @opindex Wno-analyzer-possible-null-dereference
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-possible-null-dereference} to disable it.
 
 This diagnostic warns for paths through the code in which a
@@ -6507,7 +6507,7 @@ possibly-NULL value is dereferenced.
 @item -Wno-analyzer-null-argument
 @opindex Wanalyzer-null-argument
 @opindex Wno-analyzer-null-argument
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-null-argument} to disable it.
 
 This diagnostic warns for paths through the code in which a
@@ -6518,7 +6518,7 @@ value.
 @item -Wno-analyzer-null-dereference
 @opindex Wanalyzer-null-dereference
 @opindex Wno-analyzer-null-dereference
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-null-dereference} to disable it.
 
 This diagnostic warns for paths through the code in which a
@@ -6527,7 +6527,7 @@ value known to be NULL is dereferenced.
 @item -Wno-analyzer-stale-setjmp-buffer
 @opindex Wanalyzer-stale-setjmp-buffer
 @opindex Wno-analyzer-stale-setjmp-buffer
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-stale-setjmp-buffer} to disable it.
 
 This diagnostic warns for paths through the code in which
@@ -6543,7 +6543,7 @@ no longer exists, and likely lead to a crash (or worse).
 @item -Wno-analyzer-tainted-array-index
 @opindex Wanalyzer-tainted-array-index
 @opindex Wno-analyzer-tainted-array-index
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-tainted-array-index} to disable it.
 
 This diagnostic warns for paths through the code in which a value
@@ -6553,7 +6553,7 @@ of an array access without being sanitized.
 @item -Wno-analyzer-use-after-free
 @opindex Wanalyzer-use-after-free
 @opindex Wno-analyzer-use-after-free
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-use-after-free} to disable it.
 
 This diagnostic warns for paths through the code in which a
@@ -6562,7 +6562,7 @@ pointer is used after @code{free} is called on it.
 @item -Wno-analyzer-use-of-pointer-in-stale-stack-frame
 @opindex Wanalyzer-use-of-pointer-in-stale-stack-frame
 @opindex Wno-analyzer-use-of-pointer-in-stale-stack-frame
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-use-of-pointer-in-stale-stack-frame}
 to disable it.
 
@@ -6572,7 +6572,7 @@ is dereferenced that points to a variable in a stale stack frame.
 @item -Wno-analyzer-use-of-uninitialized-value
 @opindex Wanalyzer-use-of-uninitialized-value
 @opindex Wno-analyzer-use-of-uninitialized-value
-This warning requires @option{--analyzer}, which enables it; use
+This warning requires @option{-fanalyzer}, which enables it; use
 @option{-Wno-analyzer-use-of-uninitialized-value} to disable it.
 
 This diagnostic warns for paths through the code in which an uninitialized
@@ -8238,8 +8238,10 @@ OpenMP construct.
 @section Options That Control Static Analysis
 
 @table @gcctabopt
-@item --analyzer
+@item -fanalyzer
 @opindex analyzer
+@opindex fanalyzer
+@opindex fno-analyzer
 This option enables an static analysis of program flow which looks
 for ``interesting'' interprocedural paths through the
 code, and issues warnings for problems found on them.
@@ -8271,7 +8273,7 @@ support enabled.
 @item -Wanalyzer-too-complex
 @opindex Wanalyzer-too-complex
 @opindex Wno-analyzer-too-complex
-If @option{--analyzer} is enabled, the analyzer uses various heuristics
+If @option{-fanalyzer} is enabled, the analyzer uses various heuristics
 to attempt to explore the control flow and data flow in the program,
 but these can be defeated by sufficiently complicated code.
 

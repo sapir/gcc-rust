@@ -1,6 +1,6 @@
 /* Test path-printing in the face of macros.  */
 
-/* { dg-options "--analyzer -fdiagnostics-path-format=separate-events" } */
+/* { dg-additional-options "-fdiagnostics-path-format=separate-events" } */
 
 #include "malloc-macro.h"
 

@@ -105,7 +105,7 @@ $(ANALYZER_PLUGIN_SO): $(analyzer_OBJS) $(plugin_builddir)
 # at each stage of the build:
 selftest-analyzer: s-selftest-analyzer
 
-ANALYZER_SELFTEST_FLAGS = -xc $(SELFTEST_FLAGS) --analyzer
+ANALYZER_SELFTEST_FLAGS = -xc $(SELFTEST_FLAGS) -fanalyzer
 ANALYZER_SELFTEST_DEPS = cc1$(exeext) $(SELFTEST_DEPS) $(ANALYZER_PLUGIN_SO)
 
 # Run the analyzer selftests:

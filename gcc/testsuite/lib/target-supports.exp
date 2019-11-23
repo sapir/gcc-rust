@@ -8470,7 +8470,7 @@ proc check_effective_target_lto_incremental { } {
 proc check_effective_target_analyzer { } {
     return [check_no_compiler_messages analyzer object {
 	void foo (void) { }
-    } "--analyzer"]
+    } "-fanalyzer"]
 }
 
 # Return 1 if -mx32 -maddress-mode=short can compile, 0 otherwise.

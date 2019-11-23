@@ -1,4 +1,4 @@
-/* { dg-options "--analyzer -O2" } */
+/* { dg-additional-options "-O2" } */
 
 #include <stdlib.h>
 

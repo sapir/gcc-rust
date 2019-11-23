@@ -1,6 +1,6 @@
 /* Example of a multilevel wrapper around malloc/free, with a double-'free'.  */
 
-/* { dg-options "--analyzer -fdiagnostics-show-line-numbers -fdiagnostics-nn-line-numbers -fanalyzer-checker=malloc -fanalyzer-verbose-state-changes -fdiagnostics-show-caret" } */
+/* { dg-additional-options "-fdiagnostics-show-line-numbers -fdiagnostics-nn-line-numbers -fdiagnostics-path-format=inline-events -fanalyzer-checker=malloc -fanalyzer-verbose-state-changes -fdiagnostics-show-caret" } */
 
 #include <stdlib.h>
 

@@ -1,6 +1,6 @@
 /* Test path-printing in the face of macros.  */
 
-/* { dg-options "--analyzer -fdiagnostics-show-line-numbers -fdiagnostics-nn-line-numbers -fdiagnostics-path-format=inline-events -fdiagnostics-show-caret" } */
+/* { dg-additional-options "-fdiagnostics-show-line-numbers -fdiagnostics-nn-line-numbers -fdiagnostics-path-format=inline-events -fdiagnostics-show-caret" } */
 
 #include "malloc-macro.h"
 
