@@ -5653,6 +5653,18 @@ region_model::get_stack_depth () const
     return 0;
 }
 
+/* Get the function * at DEPTH within the call stack.  */
+
+function *
+region_model::get_function_at_depth (unsigned depth) const
+{
+  stack_region *stack = get_root_region ()->get_stack_region (this);
+  gcc_assert (stack);
+  region_id frame_rid = stack->get_frame_rid (depth);
+  frame_region *frame = get_region <frame_region> (frame_rid);
+  return frame->get_function ();
+}
+
 /* Get the region_id of this model's globals region (if any).  */
 
 region_id
@@ -7429,8 +7441,13 @@ test_state_merging ()
     test_region_model_context ctxt;
     region_model model0;
     region_model model1;
+    ASSERT_EQ (model0.get_stack_depth (), 0);
     model0.push_frame (DECL_STRUCT_FUNCTION (test_fndecl), NULL, &ctxt);
+    ASSERT_EQ (model0.get_stack_depth (), 1);
+    ASSERT_EQ (model0.get_function_at_depth (0),
+	       DECL_STRUCT_FUNCTION (test_fndecl));
     model1.push_frame (DECL_STRUCT_FUNCTION (test_fndecl), NULL, &ctxt);
+
     svalue_id sid_a
       = model0.set_to_new_unknown_value (model0.get_lvalue (a, &ctxt),
 					 integer_type_node, &ctxt);

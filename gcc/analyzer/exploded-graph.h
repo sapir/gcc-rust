@@ -121,6 +121,8 @@ struct point_and_state
     m_hash = m_point.hash () ^ m_state.hash ();
   }
 
+  void validate (const extrinsic_state &ext_state) const;
+
   program_point m_point;
   program_state m_state;
   hashval_t m_hash;
@@ -166,11 +168,44 @@ class exploded_node : public dnode<eg_traits>
   void dump (FILE *fp, const extrinsic_state &ext_state) const;
   void dump (const extrinsic_state &ext_state) const;
 
-  bool on_stmt (exploded_graph &eg,
-		const supernode *snode,
-		const gimple *stmt,
-		program_state *state,
-		state_change *change) const;
+  /* The result of on_stmt.  */
+  struct on_stmt_flags
+  {
+    on_stmt_flags (bool sm_changes)
+    : m_sm_changes (sm_changes),
+      m_terminate_path (false)
+    {}
+
+    static on_stmt_flags terminate_path ()
+    {
+      return on_stmt_flags (true, true);
+    }
+
+    static on_stmt_flags state_change (bool any_sm_changes)
+    {
+      return on_stmt_flags (any_sm_changes, false);
+    }
+
+    /* Did any sm-changes occur handling the stmt.  */
+    bool m_sm_changes : 1;
+
+    /* Should we stop analyzing this path (on_stmt may have already
+       added nodes/edges, e.g. when handling longjmp).  */
+    bool m_terminate_path : 1;
+
+  private:
+    on_stmt_flags (bool sm_changes,
+		   bool terminate_path)
+    : m_sm_changes (sm_changes),
+      m_terminate_path (terminate_path)
+    {}
+  };
+
+  on_stmt_flags on_stmt (exploded_graph &eg,
+			 const supernode *snode,
+			 const gimple *stmt,
+			 program_state *state,
+			 state_change *change) const;
   bool on_edge (exploded_graph &eg,
 		const superedge *succ,
 		program_point *next_point,

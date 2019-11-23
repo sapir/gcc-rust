@@ -215,6 +215,36 @@ program_point::hash () const
   return hstate.end ();
 }
 
+/* Get the function * at DEPTH within the call stack.  */
+
+function *
+program_point::get_function_at_depth (unsigned depth) const
+{
+  gcc_assert (depth <= m_call_string.length ());
+  if (depth == m_call_string.length ())
+    return m_function_point.get_function ();
+  else
+    return m_call_string[depth]->get_caller_function ();
+}
+
+/* Assert that this object is sane.  */
+
+void
+program_point::validate () const
+{
+  /* Skip this in a release build.  */
+#if !CHECKING_P
+  return;
+#endif
+
+  m_call_string.validate ();
+  /* The "callee" of the final entry in the callstring should be the
+     function of the m_function_point.  */
+  if (m_call_string.length () > 0)
+    gcc_assert (m_call_string[m_call_string.length () - 1]->get_callee_function ()
+		== get_function ());
+}
+
 /* Check to see if SUCC is a valid edge to take (ensuring that we have
    interprocedurally valid paths in the exploded graph, and enforcing
    recursion limits).

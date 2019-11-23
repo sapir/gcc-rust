@@ -64,6 +64,8 @@ public:
     return m_return_edges[idx];
   }
 
+  void validate () const;
+
 private:
   static int cmp_1 (const call_string &a,
 		    const call_string &b);

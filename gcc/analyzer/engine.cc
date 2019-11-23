@@ -595,6 +595,38 @@ impl_region_model_context::on_condition (tree lhs, enum tree_code op, tree rhs)
 
 ////////////////////////////////////////////////////////////////////////////
 
+/* struct point_and_state.  */
+
+/* Assert that this object is sane.  */
+
+void
+point_and_state::validate (const extrinsic_state &ext_state) const
+{
+  /* Skip this in a release build.  */
+#if !CHECKING_P
+  return;
+#endif
+
+  m_point.validate ();
+
+  m_state.validate (ext_state);
+
+  /* Verify that the callstring's model of the stack corresponds to that
+     of the region_model.  */
+  /* They should have the same depth.  */
+  gcc_assert (m_point.get_stack_depth ()
+	      == m_state.m_region_model->get_stack_depth ());
+  /* Check the functions in the callstring vs those in the frames
+     at each depth.  */
+  for (int depth = 0; depth < m_point.get_stack_depth (); ++depth)
+    {
+      gcc_assert (m_point.get_function_at_depth (depth)
+		  == m_state.m_region_model->get_function_at_depth (depth));
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////
+
 /* Subroutine of print_enode_indices: print a run of indices from START_IDX
    to END_IDX to PP, using and updating *FIRST_RUN.  */
 
@@ -821,10 +853,9 @@ public:
 };
 
 /* Modify STATE in place, applying the effects of the stmt at this node's
-   point.
-   Return true if there were any sm-state changes.  */
+   point.  */
 
-bool
+exploded_node::on_stmt_flags
 exploded_node::on_stmt (exploded_graph &eg,
 			const supernode *snode,
 			const gimple *stmt,
@@ -894,7 +925,7 @@ exploded_node::on_stmt (exploded_graph &eg,
       else if (is_longjmp_call_p (call))
 	{
 	  on_longjmp (eg, call, state, &ctxt);
-	  return true;
+	  return on_stmt_flags::terminate_path ();
 	}
       else
 	state->m_region_model->on_call_pre (call, &ctxt);
@@ -933,7 +964,7 @@ exploded_node::on_stmt (exploded_graph &eg,
   if (const gcall *call = dyn_cast <const gcall *> (stmt))
     state->m_region_model->on_call_post (call, &ctxt);
 
-  return any_sm_changes;
+  return on_stmt_flags (any_sm_changes);
 }
 
 /* Consider the effect of following superedge SUCC from this node.
@@ -1701,6 +1732,7 @@ exploded_graph::get_or_create_node (const program_point &point,
     = &get_or_create_per_call_string_data (point.get_call_string ())->m_stats;
 
   point_and_state ps (point, pruned_state);
+  ps.validate (m_ext_state);
   if (exploded_node **slot = m_point_and_state_to_node.get (&ps))
     {
       /* An exploded_node for PS already exists.  */
@@ -1770,6 +1802,8 @@ exploded_graph::get_or_create_node (const program_point &point,
 		  "terminating analysis for this program point");
       return NULL;
     }
+
+  ps.validate (m_ext_state);
 
   /* An exploded_node for "ps" doesn't already exist; create one.  */
   exploded_node *node = new exploded_node (ps, m_nodes.length ());
@@ -2254,10 +2288,15 @@ exploded_graph::process_node (exploded_node *node)
 	    prev_stmt = stmt;
 
 	    /* Process the stmt.  */
-	    bool any_sm_changes
+	    exploded_node::on_stmt_flags flags
 	      = node->on_stmt (*this, snode, stmt, &next_state, &change);
 
-	    if (any_sm_changes || flag_analyzer_fine_grained)
+	    /* If flags.m_terminate_path, stop analyzing; any nodes/edges
+	       will have been added by on_stmt (e.g. for handling longjmp).  */
+	    if (flags.m_terminate_path)
+	      return;
+
+	    if (flags.m_sm_changes || flag_analyzer_fine_grained)
 	      break;
 	  }
 	unsigned next_idx = stmt_idx + 1;

@@ -1631,6 +1631,7 @@ class region_model
   svalue_id pop_frame (bool purge, purge_stats *stats,
 		       region_model_context *ctxt);
   int get_stack_depth () const;
+  function *get_function_at_depth (unsigned depth) const;
 
   region_id get_globals_region_id () const;
 

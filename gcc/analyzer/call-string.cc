@@ -199,3 +199,22 @@ call_string::cmp_1 (const call_string &a,
       // TODO: test coverage for this
     }
 }
+
+/* Assert that this object is sane.  */
+
+void
+call_string::validate () const
+{
+  /* Skip this in a release build.  */
+#if !CHECKING_P
+  return;
+#endif
+
+  /* Each entry's "caller" should be the "callee" of the previous entry.  */
+  const return_superedge *e;
+  int i;
+  FOR_EACH_VEC_ELT (m_return_edges, i, e)
+    if (i > 0)
+      gcc_assert (e->get_caller_function ()
+		  == m_return_edges[i - 1]->get_callee_function ());
+}

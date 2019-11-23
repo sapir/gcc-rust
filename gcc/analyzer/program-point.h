@@ -225,6 +225,7 @@ public:
   {
     return m_function_point.get_function ();
   }
+  function *get_function_at_depth (unsigned depth) const;
   tree get_fndecl () const
   {
     gcc_assert (get_kind () != PK_ORIGIN);
@@ -307,6 +308,8 @@ public:
   }
 
   bool on_edge (exploded_graph &eg, const superedge *succ);
+
+  void validate () const;
 
  private:
   const function_point m_function_point;
