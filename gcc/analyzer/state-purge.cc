@@ -408,16 +408,17 @@ state_purge_per_ssa_name::process_point (const function_point &point,
    to the supernode N.  */
 
 void
-state_purge_annotator::add_node_annotations (pretty_printer *pp,
+state_purge_annotator::add_node_annotations (graphviz_out *gv,
 					     const supernode &n) const
 {
   if (m_map == NULL)
     return;
 
+  pretty_printer *pp = gv->get_pp ();
+
    pp_printf (pp, "annotation_for_node_%i", n.m_index);
-   pp_printf (pp, " [shape=%s,style=filled,fillcolor=%s,label=\"",
-       "record", "lightblue");
-   pp_left_brace (pp);
+   pp_printf (pp, " [shape=none,margin=0,style=filled,fillcolor=%s,label=\"",
+	      "lightblue");
    pp_write_text_to_stream (pp);
 
    // FIXME: passing in a NULL in-edge means we get no hits
@@ -442,23 +443,23 @@ POP_IGNORE_WFORMAT
        pp_newline (pp);
      }
 
-   pp_right_brace (pp);
-
    pp_string (pp, "\"];\n\n");
    pp_flush (pp);
 }
 
-/* Print V to PP as a comma-separated list in braces, titling it
-   with TITLE.
+/* Print V to GV as a comma-separated list in braces within a <TR>,
+   titling it with TITLE.
 
    Subroutine of state_purge_annotator::add_stmt_annotations.  */
 
 static void
-print_vec_of_names (pretty_printer *pp, const char *title,
+print_vec_of_names (graphviz_out *gv, const char *title,
 		    const auto_vec<tree> &v)
 {
+  pretty_printer *pp = gv->get_pp ();
   tree name;
   unsigned i;
+  gv->begin_tr ();
   pp_printf (pp, "%s: {", title);
   FOR_EACH_VEC_ELT (v, i, name)
     {
@@ -469,6 +470,8 @@ PUSH_IGNORE_WFORMAT
 POP_IGNORE_WFORMAT
     }
   pp_printf (pp, "}");
+  pp_write_text_as_html_like_dot_to_stream (pp);
+  gv->end_tr ();
   pp_newline (pp);
 }
 
@@ -478,7 +481,7 @@ POP_IGNORE_WFORMAT
    Add text showing which names are purged at STMT.  */
 
 void
-state_purge_annotator::add_stmt_annotations (pretty_printer *pp,
+state_purge_annotator::add_stmt_annotations (graphviz_out *gv,
 					     const gimple *stmt) const
 {
   if (m_map == NULL)
@@ -486,6 +489,8 @@ state_purge_annotator::add_stmt_annotations (pretty_printer *pp,
 
   if (stmt->code == GIMPLE_PHI)
     return;
+
+  pretty_printer *pp = gv->get_pp ();
 
   pp_newline (pp);
 
@@ -511,6 +516,6 @@ state_purge_annotator::add_stmt_annotations (pretty_printer *pp,
 	}
     }
 
-  print_vec_of_names (pp, "needed here", needed);
-  print_vec_of_names (pp, "not needed here", not_needed);
+  print_vec_of_names (gv, "needed here", needed);
+  print_vec_of_names (gv, "not needed here", not_needed);
 }

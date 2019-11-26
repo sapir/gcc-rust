@@ -79,3 +79,23 @@ graphviz_out::write_indent ()
   for (int i = 0; i < m_indent * 2; ++i)
     pp_space (m_pp);
 }
+
+/* Write the start of an HTML-like row via <TR><TD>, writing to the stream
+   so that followup text can be escaped.  */
+
+void
+graphviz_out::begin_tr ()
+{
+  pp_string (m_pp, "<TR><TD ALIGN=\"LEFT\">");
+  pp_write_text_to_stream (m_pp);
+}
+
+/* Write the end of an HTML-like row via </TD></TR>, writing to the stream
+   so that followup text can be escaped.  */
+
+void
+graphviz_out::end_tr ()
+{
+  pp_string (m_pp, "</TD></TR>");
+  pp_write_text_to_stream (m_pp);
+}

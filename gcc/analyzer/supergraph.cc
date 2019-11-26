@@ -412,7 +412,7 @@ supergraph::add_return_superedge (supernode *src, supernode *dest,
 
 /* Implementation of dnode::dump_dot vfunc for supernodes.
 
-   Write a cluster for the node, and within it a record showing
+   Write a cluster for the node, and within it a .dot node showing
    the phi nodes and stmts.  Call into any node annotator from ARGS to
    potentially add other records to the cluster.  */
 
@@ -431,34 +431,41 @@ supernode::dump_dot (graphviz_out *gv, const dump_args_t &args) const
   pretty_printer *pp = gv->get_pp ();
 
   if (args.m_node_annotator)
-    args.m_node_annotator->add_node_annotations (pp, *this);
+    args.m_node_annotator->add_node_annotations (gv, *this);
 
   gv->write_indent ();
   dump_dot_id (pp);
-  pp_printf (pp, " [shape=%s,style=filled,fillcolor=%s,label=\"",
-	     "record", "lightgrey");
-  pp_left_brace (pp);
+  pp_printf (pp,
+	     " [shape=none,margin=0,style=filled,fillcolor=%s,label=<",
+	     "lightgrey");
+  pp_string (pp, "<TABLE BORDER=\"0\">");
   pp_write_text_to_stream (pp);
 
   if (m_returning_call)
     {
+      gv->begin_tr ();
       pp_string (pp, "returning call: ");
+      gv->end_tr ();
+
+      gv->begin_tr ();
       pp_gimple_stmt_1 (pp, m_returning_call, 0, (dump_flags_t)0);
+      pp_write_text_as_html_like_dot_to_stream (pp);
+      gv->end_tr ();
+
       if (args.m_node_annotator)
-	args.m_node_annotator->add_stmt_annotations (pp, m_returning_call);
-      pp_write_text_as_dot_label_to_stream (pp, /*for_record=*/true);
+	args.m_node_annotator->add_stmt_annotations (gv, m_returning_call);
       pp_newline (pp);
     }
 
   if (entry_p ())
     {
-      pp_string (pp, "ENTRY");
+      pp_string (pp, "<TR><TD>ENTRY</TD></TR>");
       pp_newline (pp);
     }
 
   if (return_p ())
     {
-      pp_string (pp, "EXIT");
+      pp_string (pp, "<TR><TD>EXIT</TD></TR>");
       pp_newline (pp);
     }
 
@@ -467,10 +474,14 @@ supernode::dump_dot (graphviz_out *gv, const dump_args_t &args) const
        !gsi_end_p (gpi); gsi_next (&gpi))
     {
       const gimple *stmt = gsi_stmt (gpi);
+      gv->begin_tr ();
       pp_gimple_stmt_1 (pp, stmt, 0, (dump_flags_t)0);
+      pp_write_text_as_html_like_dot_to_stream (pp);
+      gv->end_tr ();
+
       if (args.m_node_annotator)
-	args.m_node_annotator->add_stmt_annotations (pp, stmt);
-      pp_write_text_as_dot_label_to_stream (pp, /*for_record=*/true);
+	args.m_node_annotator->add_stmt_annotations (gv, stmt);
+
       pp_newline (pp);
     }
 
@@ -479,15 +490,18 @@ supernode::dump_dot (graphviz_out *gv, const dump_args_t &args) const
   gimple *stmt;
   FOR_EACH_VEC_ELT (m_stmts, i, stmt)
     {
+      gv->begin_tr ();
       pp_gimple_stmt_1 (pp, stmt, 0, (dump_flags_t)0);
+      pp_write_text_as_html_like_dot_to_stream (pp);
+      gv->end_tr ();
+
       if (args.m_node_annotator)
-	args.m_node_annotator->add_stmt_annotations (pp, stmt);
-      pp_write_text_as_dot_label_to_stream (pp, /*for_record=*/true);
+	args.m_node_annotator->add_stmt_annotations (gv, stmt);
+
       pp_newline (pp);
     }
 
-  pp_right_brace (pp);
-  pp_string (pp, "\"];\n\n");
+  pp_string (pp, "</TABLE>>];\n\n");
   pp_flush (pp);
 
   /* Terminate "subgraph" */

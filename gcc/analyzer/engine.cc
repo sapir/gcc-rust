@@ -702,10 +702,8 @@ exploded_node::dump_dot (graphviz_out *gv, const dump_args_t &args) const
   pretty_printer *pp = gv->get_pp ();
 
   dump_dot_id (pp);
-  pp_printf (pp, " [shape=%s,style=filled,fillcolor=%s,label=\"",
-	     "record",
+  pp_printf (pp, " [shape=none,margin=0,style=filled,fillcolor=%s,label=\"",
 	     get_dot_fillcolor ());
-  pp_left_brace (pp);
   pp_write_text_to_stream (pp);
 
   pp_printf (pp, "EN: %i", m_index);
@@ -735,7 +733,6 @@ exploded_node::dump_dot (graphviz_out *gv, const dump_args_t &args) const
 
   pp_write_text_as_dot_label_to_stream (pp, /*for_record=*/true);
 
-  pp_right_brace (pp);
   pp_string (pp, "\"];\n\n");
   pp_flush (pp);
 }
@@ -3125,17 +3122,24 @@ public:
     pretty_printer *pp = gv->get_pp ();
 
     dump_dot_id (pp);
-    pp_printf (pp, " [shape=%s,style=filled,fillcolor=%s,label=\"",
-	       "record", "lightgrey");
-    pp_left_brace (pp);
+    pp_printf (pp, " [shape=none,margin=0,style=filled,fillcolor=%s,label=<",
+	       "lightgrey");
+    pp_string (pp, "<TABLE BORDER=\"0\">");
     pp_write_text_to_stream (pp);
 
+    gv->begin_tr ();
     pp_printf (pp, "VCG: %i: %s", m_index, function_name (m_fun));
+    gv->end_tr ();
     pp_newline (pp);
 
+    gv->begin_tr ();
     pp_printf (pp, "supernodes: %i\n", m_num_supernodes);
+    gv->end_tr ();
     pp_newline (pp);
+
+    gv->begin_tr ();
     pp_printf (pp, "superedges: %i\n", m_num_superedges);
+    gv->end_tr ();
     pp_newline (pp);
 
     if (args.m_eg)
@@ -3148,7 +3152,9 @@ public:
 	    if (enode->get_point ().get_function () == m_fun)
 	      num_enodes++;
 	  }
+	gv->begin_tr ();
 	pp_printf (pp, "enodes: %i\n", num_enodes);
+	gv->end_tr ();
 	pp_newline (pp);
 
 	// TODO: also show the per-callstring breakdown
@@ -3170,8 +3176,11 @@ public:
 	      }
 	    if (num_enodes > 0)
 	      {
+		gv->begin_tr ();
 		cs->print (pp);
 		pp_printf (pp, ": %i\n", num_enodes);
+		pp_write_text_as_html_like_dot_to_stream (pp);
+		gv->end_tr ();
 	      }
 	  }
 
@@ -3180,13 +3189,14 @@ public:
 	if (data)
 	  {
 	    pp_newline (pp);
+	    gv->begin_tr ();
 	    pp_printf (pp, "summaries: %i\n", data->m_summaries.length ());
+	    pp_write_text_as_html_like_dot_to_stream (pp);
+	    gv->end_tr ();
 	  }
       }
 
-    pp_write_text_as_dot_label_to_stream (pp, /*for_record=*/true);
-    pp_right_brace (pp);
-    pp_string (pp, "\"];\n\n");
+    pp_string (pp, "</TABLE>>];\n\n");
     pp_flush (pp);
   }
 

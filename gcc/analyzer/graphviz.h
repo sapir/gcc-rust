@@ -40,6 +40,9 @@ class graphviz_out {
 
   void write_indent ();
 
+  void begin_tr ();
+  void end_tr ();
+
   pretty_printer *get_pp () const { return m_pp; }
 
  private:

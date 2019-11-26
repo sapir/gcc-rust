@@ -1210,11 +1210,11 @@ region::dump_dot_to_pp (const region_model &model,
 			pretty_printer *pp) const
 {
   this_rid.dump_node_name_to_pp (pp);
-  pp_printf (pp, " [shape=%s,style=filled,fillcolor=%s,label=\"",
-	     "record", "lightgrey");
+  pp_printf (pp, " [shape=none,margin=0,style=filled,fillcolor=%s,label=\"",
+	     "lightgrey");
   pp_write_text_to_stream (pp);
   print (model, this_rid, pp);
-  pp_write_text_as_dot_label_to_stream (pp, /*for_record=*/true);
+  pp_write_text_as_dot_label_to_stream (pp, /*for_record=*/false);
   pp_string (pp, "\"];");
   pp_newline (pp);
 

@@ -157,10 +157,10 @@ class state_purge_annotator : public dot_annotator
 public:
   state_purge_annotator (const state_purge_map *map) : m_map (map) {}
 
-  void add_node_annotations (pretty_printer *pp, const supernode &n)
+  void add_node_annotations (graphviz_out *gv, const supernode &n)
     const FINAL OVERRIDE;
 
-  void add_stmt_annotations (pretty_printer *pp,const gimple *stmt)
+  void add_stmt_annotations (graphviz_out *gv, const gimple *stmt)
     const FINAL OVERRIDE;
 
 private:

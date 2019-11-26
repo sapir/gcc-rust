@@ -547,10 +547,10 @@ class dot_annotator
 {
  public:
   virtual ~dot_annotator () {}
-  virtual void add_node_annotations (pretty_printer *pp ATTRIBUTE_UNUSED,
+  virtual void add_node_annotations (graphviz_out *gv ATTRIBUTE_UNUSED,
 				     const supernode &n ATTRIBUTE_UNUSED)
     const {}
-  virtual void add_stmt_annotations (pretty_printer *pp ATTRIBUTE_UNUSED,
+  virtual void add_stmt_annotations (graphviz_out *gv ATTRIBUTE_UNUSED,
 				     const gimple *stmt ATTRIBUTE_UNUSED)
     const {}
 };
