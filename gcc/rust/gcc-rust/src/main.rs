@@ -9,17 +9,40 @@ extern crate rustc_driver;
 extern crate rustc_errors;
 extern crate rustc_interface;
 extern crate rustc_metadata;
+extern crate syntax_pos;
 
+use rustc::{hir::def_id::LOCAL_CRATE, mir::Body};
 use rustc_driver::Compilation;
 use rustc_interface::interface;
+use syntax_pos::symbol::Symbol;
 
 struct GccRustCompilerCalls;
 
 impl rustc_driver::Callbacks for GccRustCompilerCalls {
     fn after_analysis(&mut self, compiler: &interface::Compiler) -> Compilation {
         compiler.session().abort_if_errors();
+
+        compiler.global_ctxt().unwrap().peek_mut().enter(|tcx| {
+            for &mir_key in tcx.mir_keys(LOCAL_CRATE) {
+                // TODO: symbol_name?
+                let name = tcx.item_name(mir_key);
+                let mir = tcx.optimized_mir(mir_key);
+                func_mir_to_gcc(name, mir);
+            }
+        });
+
+        compiler.session().abort_if_errors();
         Compilation::Stop
     }
+}
+
+fn func_mir_to_gcc<'tcx>(name: Symbol, func_mir: &Body<'tcx>) {
+    println!("name: {}", name.as_str());
+    for bb in func_mir.basic_blocks() {
+        println!("{:?}", bb);
+    }
+
+    println!();
 }
 
 // copied from miri
