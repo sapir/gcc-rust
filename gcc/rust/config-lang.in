@@ -1,0 +1,6 @@
+language="rust"
+compilers="rust1\$(exeext)"
+target_libs=""
+gtfiles="\$(srcdir)/rust/rust1.cc"
+lang_requires_boot_languages=c++
+build_by_default="no"

@@ -1,0 +1,74 @@
+GCCRUST_INSTALL_NAME := $(shell echo gccrust|sed '$(program_transform_name)')
+GCCRUST_TARGET_INSTALL_NAME := $(target_noncanonical)-$(shell echo gccrust|sed '$(program_transform_name)')
+
+rust: rust1$(exeext)
+
+.PHONY: rust
+
+# Driver
+
+GCCRUST_OBJS = \
+   $(GCC_OBJS) \
+   rust/rustspec.o \
+   $(END)
+
+gccrust$(exeext): $(GCCRUST_OBJS) $(EXTRA_GCC_OBJS) libcommon-target.a $(LIBDEPS)
+	+$(LINKER) $(ALL_LINKERFLAGS) $(LDFLAGS) -o $@ \
+	  $(GCCRUST_OBJS) $(EXTRA_GCC_OBJS) libcommon-target.a \
+	  $(EXTRA_GCC_LIBS) $(LIBS)
+
+# The compiler proper
+
+rust_OBJS = \
+	rust/rust1.o \
+	$(END)
+
+rust1$(exeext): attribs.o $(rust_OBJS) $(BACKEND) $(LIBDEPS)
+	+$(LLINKER) $(ALL_LINKERFLAGS) $(LDFLAGS) -o $@ \
+		  attribs.o $(rust_OBJS) $(BACKEND) $(LIBS) $(BACKENDLIBS)
+
+rust.all.cross:
+
+rust.start.encap: gccrust$(exeext)
+rust.rest.encap:
+
+rust.install-common: installdirs
+	-rm -f $(DESTDIR)$(bindir)/$(GCCRUST_INSTALL_NAME)$(exeext)
+	$(INSTALL_PROGRAM) gccrust$(exeext) $(DESTDIR)$(bindir)/$(GCCRUST_INSTALL_NAME)$(exeext)
+	rm -f $(DESTDIR)$(bindir)/$(GCCRUST_TARGET_INSTALL_NAME)$(exeext); \
+	( cd $(DESTDIR)$(bindir) && \
+	  $(LN) $(GCCRUST_INSTALL_NAME)$(exeext) $(GCCRUST_TARGET_INSTALL_NAME)$(exeext) ); \
+
+rust.install-man:
+rust.install-info:
+rust.install-pdf:
+rust.install-plugin:
+rust.install-html:
+rust.info:
+rust.dvi:
+rust.pdf:
+rust.html:
+rust.man:
+rust.mostlyclean:
+rust.clean:
+rust.distclean:
+rust.maintainer-clean:
+
+rust.uninstall:
+	-rm -f gccrust$(exeext) rust1$(exeext)
+	-rm -f $(rust_OBJS)
+
+rust.stage1: stage1-start
+	-mv rust/*$(objext) stage1/rust
+rust.stage2: stage2-start
+	-mv rust/*$(objext) stage2/rust
+rust.stage3: stage3-start
+	-mv rust/*$(objext) stage3/rust
+rust.stage4: stage4-start
+	-mv rust/*$(objext) stage4/rust
+rust.stageprofile: stageprofile-start
+	-mv rust/*$(objext) stageprofile/rust
+rust.stagefeedback: stagefeedback-start
+	-mv rust/*$(objext) stagefeedback/rust
+
+selftest-rust:
