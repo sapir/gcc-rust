@@ -11,11 +11,11 @@ extern crate rustc_interface;
 extern crate rustc_metadata;
 extern crate syntax_pos;
 
-use rustc::{hir::def_id::LOCAL_CRATE, mir::Body};
+mod mir2gimple;
+
 use rustc_driver::Compilation;
 use rustc_interface::{interface, Queries};
 use std::{ffi::CStr, os::raw::c_char};
-use syntax_pos::symbol::Symbol;
 
 struct GccRustCompilerCalls;
 
@@ -27,33 +27,11 @@ impl rustc_driver::Callbacks for GccRustCompilerCalls {
     ) -> Compilation {
         compiler.session().abort_if_errors();
 
-        queries.global_ctxt().unwrap().peek_mut().enter(|tcx| {
-            for &mir_key in tcx.mir_keys(LOCAL_CRATE) {
-                // TODO: symbol_name?
-                let name = tcx.item_name(mir_key);
-                let mir = tcx.optimized_mir(mir_key);
-                func_mir_to_gcc(name, mir);
-            }
-        });
+        mir2gimple::mir2gimple(queries);
 
         compiler.session().abort_if_errors();
-
-        unsafe {
-            let tree = make_a_tree();
-            gimplify_and_finalize(tree);
-        }
-
         Compilation::Stop
     }
-}
-
-fn func_mir_to_gcc<'tcx>(name: Symbol, func_mir: &Body<'tcx>) {
-    println!("name: {}", name.as_str());
-    for bb in func_mir.basic_blocks() {
-        println!("{:?}", bb);
-    }
-
-    println!();
 }
 
 // copied from miri
@@ -77,16 +55,6 @@ fn compile_time_sysroot() -> Option<String> {
             .expect("To build Miri without rustup, set the `RUST_SYSROOT` env var at build time")
             .to_owned(),
     })
-}
-
-#[repr(C)]
-pub struct Tree {
-    _private: [u8; 0],
-}
-
-extern "C" {
-    fn make_a_tree() -> *mut Tree;
-    fn gimplify_and_finalize(tree: *mut Tree);
 }
 
 #[no_mangle]
