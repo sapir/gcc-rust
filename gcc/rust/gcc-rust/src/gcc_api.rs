@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use std::{
+    ffi::CStr,
     os::raw::{c_char, c_uint, c_ulong},
     ptr::null_mut,
 };
@@ -468,25 +469,56 @@ impl From<IntegerTypeKind> for Tree {
     }
 }
 
+impl Tree {
+    pub fn new_function_type(return_type: Tree, mut arg_types: Vec<Tree>) -> Self {
+        unsafe { _build_function_type_array(return_type, arg_types.len(), arg_types.as_mut_ptr()) }
+    }
+
+    pub fn new_init_expr(var: Tree, value: Tree) -> Self {
+        unsafe { _build2(TreeCode::InitExpr, TreeIndex::VoidType.into(), var, value) }
+    }
+
+    pub fn new_int_constant(int_type: IntegerTypeKind, value: i64) -> Self {
+        unsafe { build_int_constant(int_type.into(), value) }
+    }
+
+    pub fn new_return_expr(value: Tree) -> Self {
+        unsafe { _build1(TreeCode::ReturnExpr, TreeIndex::VoidType.into(), value) }
+    }
+
+    pub fn new_block(vars: Tree, subblocks: Tree, supercontext: Tree, chain: Tree) -> Self {
+        unsafe { _build_block(vars, subblocks, supercontext, chain) }
+    }
+
+    pub fn new_bind_expr(vars: Tree, body: Tree, block: Tree) -> Self {
+        unsafe {
+            _build3(
+                TreeCode::BindExpr,
+                TreeIndex::VoidType.into(),
+                vars,
+                body,
+                block,
+            )
+        }
+    }
+
+    pub fn new_result_decl(loc: Location, type_: Tree) -> Self {
+        unsafe { _build_decl(loc, TreeCode::ResultDecl, NULL_TREE, type_) }
+    }
+}
+
 extern "C" {
     static global_trees: [Tree; TreeIndex::Max as usize];
     static integer_types: [Tree; IntegerTypeKind::None as usize];
 
     fn _alloc_stmt_list() -> Tree;
     fn _append_to_statement_list(stmt: Tree, list: *mut Tree);
-    pub fn _build0(code: TreeCode, tt: Tree) -> Tree;
-    pub fn _build1(code: TreeCode, tt: Tree, arg0: Tree) -> Tree;
-    pub fn _build2(code: TreeCode, tt: Tree, arg0: Tree, arg1: Tree) -> Tree;
-    pub fn _build3(code: TreeCode, tt: Tree, arg0: Tree, arg1: Tree, arg2: Tree) -> Tree;
-    pub fn _build4(
-        code: TreeCode,
-        tt: Tree,
-        arg0: Tree,
-        arg1: Tree,
-        arg2: Tree,
-        arg3: Tree,
-    ) -> Tree;
-    pub fn _build5(
+    fn _build0(code: TreeCode, tt: Tree) -> Tree;
+    fn _build1(code: TreeCode, tt: Tree, arg0: Tree) -> Tree;
+    fn _build2(code: TreeCode, tt: Tree, arg0: Tree, arg1: Tree) -> Tree;
+    fn _build3(code: TreeCode, tt: Tree, arg0: Tree, arg1: Tree, arg2: Tree) -> Tree;
+    fn _build4(code: TreeCode, tt: Tree, arg0: Tree, arg1: Tree, arg2: Tree, arg3: Tree) -> Tree;
+    fn _build5(
         code: TreeCode,
         tt: Tree,
         arg0: Tree,
@@ -495,39 +527,35 @@ extern "C" {
         arg3: Tree,
         arg4: Tree,
     ) -> Tree;
-    pub fn _build_decl(loc: Location, code: TreeCode, name: Tree, tt: Tree) -> Tree;
-    pub fn _build_string_literal(
+    fn _build_decl(loc: Location, code: TreeCode, name: Tree, tt: Tree) -> Tree;
+    fn _build_string_literal(
         len: usize,
         string: *const c_char,
         eltype: Tree,
         size: c_ulong,
     ) -> Tree;
-    pub fn _build_block(vars: Tree, subblocks: Tree, supercontext: Tree, chain: Tree) -> Tree;
-    pub fn _build_call_array_loc(
+    fn _build_block(vars: Tree, subblocks: Tree, supercontext: Tree, chain: Tree) -> Tree;
+    fn _build_call_array_loc(
         loc: Location,
         returntype: Tree,
         fn_ptr: Tree,
         num_args: usize,
         args: *mut Tree,
     ) -> Tree;
-    pub fn _build_pointer_type(totype: Tree) -> Tree;
-    pub fn _build_function_type_array(
-        returntype: Tree,
-        num_args: usize,
-        argtypes: *mut Tree,
-    ) -> Tree;
-    pub fn _build_fn_decl(name: *const c_char, decltype: Tree) -> Tree;
-    pub fn _create_artifical_label(loc: Location) -> Tree;
-    pub fn _gimplify_function_tree(tree: Tree);
+    fn _build_pointer_type(totype: Tree) -> Tree;
+    fn _build_function_type_array(returntype: Tree, num_args: usize, argtypes: *mut Tree) -> Tree;
+    fn _build_fn_decl(name: *const c_char, decltype: Tree) -> Tree;
+    fn _create_artifical_label(loc: Location) -> Tree;
+    fn _gimplify_function_tree(tree: Tree);
 
-    pub fn build_int_constant(inttype: Tree, value: i64) -> Tree;
-    pub fn set_fn_result(fn_decl: Tree, result: Tree);
-    pub fn set_fn_initial(fn_decl: Tree, tree: Tree);
-    pub fn set_fn_saved_tree(fn_decl: Tree, tree: Tree);
-    pub fn set_fn_external(fn_decl: Tree, value: bool);
-    pub fn set_fn_preserve_p(fn_decl: Tree, value: bool);
-    pub fn finalize_decl(tree: Tree);
-    pub fn finalize_function(tree: Tree, no_collect: bool);
+    fn build_int_constant(inttype: Tree, value: i64) -> Tree;
+    fn set_fn_result(fn_decl: Tree, result: Tree);
+    fn set_fn_initial(fn_decl: Tree, tree: Tree);
+    fn set_fn_saved_tree(fn_decl: Tree, tree: Tree);
+    fn set_fn_external(fn_decl: Tree, value: bool);
+    fn set_fn_preserve_p(fn_decl: Tree, value: bool);
+    fn finalize_decl(tree: Tree);
+    fn finalize_function(tree: Tree, no_collect: bool);
 }
 
 pub struct StatementList(pub Tree);
@@ -540,6 +568,56 @@ impl StatementList {
     pub fn push(&mut self, stmt: Tree) {
         unsafe {
             _append_to_statement_list(stmt, &mut self.0);
+        }
+    }
+}
+
+pub struct Function(pub Tree);
+
+impl Function {
+    pub fn new(name: &CStr, type_: Tree) -> Self {
+        Self(unsafe { _build_fn_decl(name.as_ptr(), type_) })
+    }
+
+    pub fn set_result(&mut self, result: Tree) {
+        unsafe {
+            set_fn_result(self.0, result);
+        }
+    }
+
+    pub fn set_initial(&mut self, tree: Tree) {
+        unsafe {
+            set_fn_initial(self.0, tree);
+        }
+    }
+
+    pub fn set_saved_tree(&mut self, tree: Tree) {
+        unsafe {
+            set_fn_saved_tree(self.0, tree);
+        }
+    }
+
+    pub fn set_external(&mut self, value: bool) {
+        unsafe {
+            set_fn_external(self.0, value);
+        }
+    }
+
+    pub fn set_preserve_p(&mut self, value: bool) {
+        unsafe {
+            set_fn_preserve_p(self.0, value);
+        }
+    }
+
+    pub fn gimplify(&mut self) {
+        unsafe {
+            _gimplify_function_tree(self.0);
+        }
+    }
+
+    pub fn finalize(&mut self) {
+        unsafe {
+            finalize_function(self.0, true);
         }
     }
 }

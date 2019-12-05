@@ -13,47 +13,28 @@ fn handle_basic_block(block_labels: &[Tree], block: &BasicBlockData) {
 
 fn func_mir_to_gcc<'tcx>(name: Symbol, func_mir: &Body<'tcx>) {
     use IntegerTypeKind::Int;
-    use TreeCode::{BindExpr, InitExpr, ResultDecl, ReturnExpr};
-    use TreeIndex::VoidType;
 
-    unsafe {
-        let fn_decl = {
-            let fn_type = _build_function_type_array(Int.into(), 0, std::ptr::null_mut());
-            let name = CString::new(&*name.as_str()).unwrap();
-            _build_fn_decl(name.as_ptr(), fn_type)
-        };
+    let name = CString::new(&*name.as_str()).unwrap();
+    let mut fn_decl = Function::new(&name, Tree::new_function_type(Int.into(), vec![]));
 
-        let mut stmt_list = StatementList::new();
+    let mut stmt_list = StatementList::new();
 
-        let resdecl = _build_decl(UNKNOWN_LOCATION, ResultDecl, NULL_TREE, Int.into());
-        set_fn_result(fn_decl, resdecl.clone());
+    let resdecl = Tree::new_result_decl(UNKNOWN_LOCATION, Int.into());
+    fn_decl.set_result(resdecl);
 
-        let set_result = _build2(
-            InitExpr,
-            VoidType.into(),
-            resdecl,
-            build_int_constant(Int.into(), 5),
-        );
-        let return_stmt = _build1(ReturnExpr, VoidType.into(), set_result);
-        stmt_list.push(return_stmt);
+    let set_result = Tree::new_init_expr(resdecl, Tree::new_int_constant(Int, 5));
+    stmt_list.push(Tree::new_return_expr(set_result));
 
-        let main_block = _build_block(NULL_TREE, NULL_TREE, fn_decl, NULL_TREE);
-        let bind_expr = _build3(
-            BindExpr,
-            VoidType.into(),
-            NULL_TREE,
-            stmt_list.0,
-            main_block,
-        );
+    let main_block = Tree::new_block(NULL_TREE, NULL_TREE, fn_decl.0, NULL_TREE);
+    let bind_expr = Tree::new_bind_expr(NULL_TREE, stmt_list.0, main_block);
 
-        set_fn_initial(fn_decl, main_block);
-        set_fn_saved_tree(fn_decl, bind_expr);
-        set_fn_external(fn_decl, false);
-        set_fn_preserve_p(fn_decl, true);
+    fn_decl.set_initial(main_block);
+    fn_decl.set_saved_tree(bind_expr);
+    fn_decl.set_external(false);
+    fn_decl.set_preserve_p(true);
 
-        _gimplify_function_tree(fn_decl);
-        finalize_function(fn_decl, true);
-    }
+    fn_decl.gimplify();
+    fn_decl.finalize();
 
     /*
     let block_labels = func_mir
