@@ -23,10 +23,14 @@ rust_OBJS = \
 	rust/rust1.o \
 	$(END)
 
-rust1$(exeext): attribs.o $(rust_OBJS) $(BACKEND) $(LIBDEPS) $(srcdir)/rust/gcc-rust/target/debug/libgcc_rust.a
+RUST_BUILD_DIR = $(srcdir)/rust/gcc-rust/target/debug
+RUST_LIB_NAME = gcc_rust
+RUST_LIB_PATH = $(RUST_BUILD_DIR)/lib$(RUST_LIB_NAME).a
+
+rust1$(exeext): attribs.o $(rust_OBJS) $(BACKEND) $(LIBDEPS) $(RUST_LIB_PATH)
 	+$(LLINKER) $(ALL_LINKERFLAGS) $(LDFLAGS) -o $@ \
 		  attribs.o $(rust_OBJS) $(BACKEND) $(LIBS) $(BACKENDLIBS) \
-		  -L$(srcdir)/rust/gcc-rust/target/debug -lgcc_rust -pthread
+		  -L$(RUST_BUILD_DIR) -l$(RUST_LIB_NAME) -pthread
 
 rust.all.cross:
 

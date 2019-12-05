@@ -97,15 +97,32 @@ fn main() {
 }
 */
 
+#[repr(C)]
+pub struct Tree {
+    _private: [u8; 0],
+}
+
+extern "C" {
+    fn make_a_tree() -> *mut Tree;
+}
+
 #[no_mangle]
-pub extern "C" fn compile_to_mir(filenames: *const *const c_char, num_filenames: usize) {
+pub extern "C" fn compile_to_mir(
+    filenames: *const *const c_char,
+    num_filenames: usize,
+) -> *mut Tree {
     let filenames = unsafe { std::slice::from_raw_parts(filenames, num_filenames) };
     let filenames = filenames
         .into_iter()
         .map(|&filename| unsafe { CStr::from_ptr(filename) })
-        .collect::<Vec<_>>();
+        .map(|filename| filename.to_str())
+        .collect::<Result<Vec<_>, _>>();
 
-    for filename in filenames {
-        eprintln!("hi {}", filename.to_str().unwrap());
+    if let Ok(filenames) = filenames {
+        for filename in filenames {
+            eprintln!("hi {}", filename);
+        }
     }
+
+    unsafe { make_a_tree() }
 }

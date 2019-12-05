@@ -80,10 +80,72 @@ static bool rust_langhook_init(void) {
   return true;
 }
 
-extern "C" void compile_to_mir(const char **filenames, size_t num_filenames);
+extern "C" tree make_a_tree() {
+  tree fndecl_type_param[] = {
+      build_pointer_type(build_qualified_type(char_type_node, TYPE_QUAL_CONST)),
+  };
+  tree fndecl_type = build_varargs_function_type_array(integer_type_node, 1,
+                                                       fndecl_type_param);
+  tree printf_fn_decl = build_fn_decl("printf", fndecl_type);
+  DECL_EXTERNAL(printf_fn_decl) = 1;
+
+  tree printf_fn =
+      build1(ADDR_EXPR, build_pointer_type(fndecl_type), printf_fn_decl);
+
+  const char *format_integer = "%d\n";
+  tree args[] = {
+      build_string_literal(strlen(format_integer) + 1, format_integer),
+      build_int_cst_type(integer_type_node, 5),
+  };
+
+  tree stmt1 = build_call_array_loc(UNKNOWN_LOCATION, integer_type_node,
+                                    printf_fn, 2, args);
+
+  // Built type of main "int (int, char**)"
+  tree main_fndecl_type_param[] = {
+      integer_type_node,                                     /* int */
+      build_pointer_type(build_pointer_type(char_type_node)) /* char** */
+  };
+  tree main_fndecl_type =
+      build_function_type_array(integer_type_node, 2, main_fndecl_type_param);
+  // Create function declaration "int main(int, char**)"
+  tree main_fndecl = build_fn_decl("main", main_fndecl_type);
+  tree resdecl =
+      build_decl(UNKNOWN_LOCATION, RESULT_DECL, NULL_TREE, integer_type_node);
+  DECL_RESULT(main_fndecl) = resdecl;
+
+  tree set_result = build2(INIT_EXPR, void_type_node, DECL_RESULT(main_fndecl),
+                           build_int_cst_type(integer_type_node, 0));
+  tree return_stmt = build1(RETURN_EXPR, void_type_node, set_result);
+
+  tree stmt_list = alloc_stmt_list();
+  append_to_statement_list(stmt1, &stmt_list);
+  append_to_statement_list(return_stmt, &stmt_list);
+  tree main_block = build_block(NULL_TREE, NULL_TREE, NULL_TREE, NULL_TREE);
+  tree bind_expr =
+      build3(BIND_EXPR, void_type_node, NULL_TREE, stmt_list, main_block);
+
+  // Finish main function
+  BLOCK_SUPERCONTEXT(main_block) = main_fndecl;
+  DECL_INITIAL(main_fndecl) = main_block;
+  DECL_SAVED_TREE(main_fndecl) = bind_expr;
+
+  DECL_EXTERNAL(main_fndecl) = 0;
+  DECL_PRESERVE_P(main_fndecl) = 1;
+
+  return main_fndecl;
+}
+
+extern "C" tree compile_to_mir(const char **filenames, size_t num_filenames);
 
 static void rust_langhook_parse_file(void) {
-  compile_to_mir(in_fnames, num_in_fnames);
+  tree main_fndecl = compile_to_mir(in_fnames, num_in_fnames);
+
+  // Convert from GENERIC to GIMPLE
+  gimplify_function_tree(main_fndecl);
+
+  // Insert it into the graph
+  cgraph_node::finalize_function(main_fndecl, true);
 }
 
 static tree rust_langhook_type_for_mode(enum machine_mode mode,
