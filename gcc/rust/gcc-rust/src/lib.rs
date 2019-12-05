@@ -123,6 +123,9 @@ pub extern "C" fn compile_to_mir(filenames: *const *const c_char, num_filenames:
         // }
     }
 
+    rustc_args.push("--crate-type".to_owned());
+    rustc_args.push("staticlib".to_owned());
+
     rustc_driver::install_ice_hook();
     let result = rustc_driver::catch_fatal_errors(move || {
         rustc_driver::run_compiler(&rustc_args, &mut GccRustCompilerCalls, None, None)
