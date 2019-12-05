@@ -4,11 +4,7 @@ use rustc::{
     mir::{BasicBlockData, Body},
 };
 use rustc_interface::Queries;
-use std::{
-    ffi::CString,
-    os::raw::{c_char, c_uint, c_ulong},
-    ptr::null_mut,
-};
+use std::ffi::CString;
 use syntax_pos::symbol::Symbol;
 
 fn handle_basic_block(block_labels: &[Tree], block: &BasicBlockData) {
@@ -21,9 +17,11 @@ fn func_mir_to_gcc<'tcx>(name: Symbol, func_mir: &Body<'tcx>) {
     use TreeIndex::VoidType;
 
     unsafe {
-        let fn_type = _build_function_type_array(Int.into(), 0, std::ptr::null_mut());
-        let name = CString::new(&*name.as_str()).unwrap();
-        let fn_decl = _build_fn_decl(name.as_ptr(), fn_type);
+        let fn_decl = {
+            let fn_type = _build_function_type_array(Int.into(), 0, std::ptr::null_mut());
+            let name = CString::new(&*name.as_str()).unwrap();
+            _build_fn_decl(name.as_ptr(), fn_type)
+        };
 
         let mut stmt_list = StatementList::new();
 
