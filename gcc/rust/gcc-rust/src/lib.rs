@@ -11,6 +11,7 @@ extern crate rustc_interface;
 extern crate rustc_metadata;
 extern crate syntax_pos;
 
+mod gcc_api;
 mod mir2gimple;
 
 use rustc_driver::Compilation;

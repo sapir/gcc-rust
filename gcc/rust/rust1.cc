@@ -80,70 +80,119 @@ static bool rust_langhook_init(void) {
   return true;
 }
 
-extern "C" tree make_a_tree() {
-  tree fndecl_type_param[] = {
-      build_pointer_type(build_qualified_type(char_type_node, TYPE_QUAL_CONST)),
-  };
-  tree fndecl_type = build_varargs_function_type_array(integer_type_node, 1,
-                                                       fndecl_type_param);
-  tree printf_fn_decl = build_fn_decl("printf", fndecl_type);
-  DECL_EXTERNAL(printf_fn_decl) = 1;
-
-  tree printf_fn =
-      build1(ADDR_EXPR, build_pointer_type(fndecl_type), printf_fn_decl);
-
-  const char *format_integer = "%d\n";
-  tree args[] = {
-      build_string_literal(strlen(format_integer) + 1, format_integer),
-      build_int_cst_type(integer_type_node, 5),
-  };
-
-  tree stmt1 = build_call_array_loc(UNKNOWN_LOCATION, integer_type_node,
-                                    printf_fn, 2, args);
-
-  // Built type of main "int (int, char**)"
-  tree main_fndecl_type_param[] = {
-      integer_type_node,                                     /* int */
-      build_pointer_type(build_pointer_type(char_type_node)) /* char** */
-  };
-  tree main_fndecl_type =
-      build_function_type_array(integer_type_node, 2, main_fndecl_type_param);
-  // Create function declaration "int main(int, char**)"
-  tree main_fndecl = build_fn_decl("main", main_fndecl_type);
-  tree resdecl =
-      build_decl(UNKNOWN_LOCATION, RESULT_DECL, NULL_TREE, integer_type_node);
-  DECL_RESULT(main_fndecl) = resdecl;
-
-  tree set_result = build2(INIT_EXPR, void_type_node, DECL_RESULT(main_fndecl),
-                           build_int_cst_type(integer_type_node, 0));
-  tree return_stmt = build1(RETURN_EXPR, void_type_node, set_result);
-
-  tree stmt_list = alloc_stmt_list();
-  append_to_statement_list(stmt1, &stmt_list);
-  append_to_statement_list(return_stmt, &stmt_list);
-  tree main_block = build_block(NULL_TREE, NULL_TREE, NULL_TREE, NULL_TREE);
-  tree bind_expr =
-      build3(BIND_EXPR, void_type_node, NULL_TREE, stmt_list, main_block);
-
-  // Finish main function
-  BLOCK_SUPERCONTEXT(main_block) = main_fndecl;
-  DECL_INITIAL(main_fndecl) = main_block;
-  DECL_SAVED_TREE(main_fndecl) = bind_expr;
-
-  DECL_EXTERNAL(main_fndecl) = 0;
-  DECL_PRESERVE_P(main_fndecl) = 1;
-
-  return main_fndecl;
-}
-
+// Defined by Rust gcc_rust library
 extern "C" void compile_to_mir(const char **filenames, size_t num_filenames);
 
-extern "C" void gimplify_and_finalize(tree fndecl) {
-  // Convert from GENERIC to GIMPLE
-  gimplify_function_tree(fndecl);
+extern "C" {
+  tree _alloc_stmt_list() {
+    return alloc_stmt_list();
+  }
 
-  // Insert it into the graph
-  cgraph_node::finalize_function(fndecl, true);
+  void _append_to_statement_list(tree stmt, tree *list) {
+    append_to_statement_list(stmt, list);
+  }
+
+  tree _build0(enum tree_code code, tree tt) {
+    return build0(code, tt);
+  }
+
+  tree _build1(enum tree_code code, tree tt, tree arg0) {
+    return build1(code, tt, arg0);
+  }
+  tree _build2(enum tree_code code, tree tt, tree arg0, tree arg1) {
+    return build2(code, tt, arg0, arg1);
+  }
+  tree _build3(enum tree_code code, tree tt, tree arg0, tree arg1, tree arg2) {
+    return build3(code, tt, arg0, arg1, arg2);
+  }
+  tree _build4(enum tree_code code, tree tt, tree arg0, tree arg1, tree arg2, tree arg3) {
+    return build4(code, tt, arg0, arg1, arg2, arg3);
+  }
+  tree _build5(
+      enum tree_code code,
+      tree tt,
+      tree arg0,
+      tree arg1,
+      tree arg2,
+      tree arg3,
+      tree arg4
+  ) {
+    return build5(code, tt, arg0, arg1, arg2, arg3, arg4);
+  }
+  tree _build_decl(location_t loc, enum tree_code code, tree name, tree tt) {
+    return build_decl(loc, code, name, tt);
+  }
+  tree _build_string_literal(
+      size_t len,
+      const char *string,
+      tree eltype,
+      unsigned long size
+  ) {
+    return build_string_literal(len, string, eltype, size);
+  }
+  tree _build_block(tree vars, tree subblocks, tree supercontext, tree chain) {
+    return build_block(vars, subblocks, supercontext, chain);
+  }
+  tree _build_call_array_loc(
+      location_t loc,
+      tree returntype,
+      tree fn_ptr,
+      size_t num_args,
+      tree *args
+  ) {
+    return build_call_array_loc(loc, returntype, fn_ptr, num_args, args);
+  }
+  tree _build_pointer_type(tree totype) {
+    return build_pointer_type(totype);
+  }
+  tree _build_function_type_array(
+      tree returntype,
+      size_t num_args,
+      tree *argtypes
+  ) {
+    return build_function_type_array(returntype, num_args, argtypes);
+  }
+  tree _build_fn_decl(const char *name, tree type) {
+    return build_fn_decl(name, type);
+  }
+  tree _create_artifical_label(location_t loc) {
+    return create_artificial_label(loc);
+  }
+  void _gimplify_function_tree(tree t) {
+    return gimplify_function_tree(t);
+  }
+
+  tree build_int_constant(tree int_type, int64_t value) {
+    return build_int_cst_type(int_type, value);
+  }
+
+  void set_fn_result(tree fn_decl, tree result) {
+    DECL_RESULT(fn_decl) = result;
+  }
+
+  void set_fn_initial(tree fn_decl, tree t) {
+    DECL_INITIAL(fn_decl) = t;
+  }
+
+  void set_fn_saved_tree(tree fn_decl, tree t) {
+    DECL_SAVED_TREE(fn_decl) = t;
+  }
+
+  void set_fn_external(tree fn_decl, bool value) {
+    DECL_EXTERNAL(fn_decl) = value;
+  }
+
+  void set_fn_preserve_p(tree fn_decl, bool value) {
+    DECL_PRESERVE_P(fn_decl) = value;
+  }
+
+  void finalize_decl(tree decl) {
+    varpool_node::finalize_decl(decl);
+  }
+
+  void finalize_function(tree fndecl, bool no_collect) {
+    cgraph_node::finalize_function(fndecl, no_collect);
+  }
 }
 
 static void rust_langhook_parse_file(void) {
