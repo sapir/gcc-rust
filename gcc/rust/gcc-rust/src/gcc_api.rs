@@ -472,8 +472,8 @@ extern "C" {
     static global_trees: [Tree; TreeIndex::Max as usize];
     static integer_types: [Tree; IntegerTypeKind::None as usize];
 
-    pub fn _alloc_stmt_list() -> Tree;
-    pub fn _append_to_statement_list(stmt: Tree, list: *mut Tree);
+    fn _alloc_stmt_list() -> Tree;
+    fn _append_to_statement_list(stmt: Tree, list: *mut Tree);
     pub fn _build0(code: TreeCode, tt: Tree) -> Tree;
     pub fn _build1(code: TreeCode, tt: Tree, arg0: Tree) -> Tree;
     pub fn _build2(code: TreeCode, tt: Tree, arg0: Tree, arg1: Tree) -> Tree;
@@ -528,4 +528,18 @@ extern "C" {
     pub fn set_fn_preserve_p(fn_decl: Tree, value: bool);
     pub fn finalize_decl(tree: Tree);
     pub fn finalize_function(tree: Tree, no_collect: bool);
+}
+
+pub struct StatementList(pub Tree);
+
+impl StatementList {
+    pub fn new() -> Self {
+        Self(unsafe { _alloc_stmt_list() })
+    }
+
+    pub fn push(&mut self, stmt: Tree) {
+        unsafe {
+            _append_to_statement_list(stmt, &mut self.0);
+        }
+    }
 }

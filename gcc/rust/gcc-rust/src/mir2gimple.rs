@@ -17,15 +17,15 @@ fn handle_basic_block(block_labels: &[Tree], block: &BasicBlockData) {
 
 fn func_mir_to_gcc<'tcx>(name: Symbol, func_mir: &Body<'tcx>) {
     use IntegerTypeKind::Int;
-    use TreeCode::*;
-    use TreeIndex::{VoidType, *};
+    use TreeCode::{BindExpr, InitExpr, ResultDecl, ReturnExpr};
+    use TreeIndex::VoidType;
 
     unsafe {
         let fn_type = _build_function_type_array(Int.into(), 0, std::ptr::null_mut());
         let name = CString::new(&*name.as_str()).unwrap();
         let fn_decl = _build_fn_decl(name.as_ptr(), fn_type);
 
-        let mut stmt_list = _alloc_stmt_list();
+        let mut stmt_list = StatementList::new();
 
         let resdecl = _build_decl(UNKNOWN_LOCATION, ResultDecl, NULL_TREE, Int.into());
         set_fn_result(fn_decl, resdecl.clone());
@@ -37,10 +37,16 @@ fn func_mir_to_gcc<'tcx>(name: Symbol, func_mir: &Body<'tcx>) {
             build_int_constant(Int.into(), 5),
         );
         let return_stmt = _build1(ReturnExpr, VoidType.into(), set_result);
-        _append_to_statement_list(return_stmt, &mut stmt_list);
+        stmt_list.push(return_stmt);
 
         let main_block = _build_block(NULL_TREE, NULL_TREE, fn_decl, NULL_TREE);
-        let bind_expr = _build3(BindExpr, VoidType.into(), NULL_TREE, stmt_list, main_block);
+        let bind_expr = _build3(
+            BindExpr,
+            VoidType.into(),
+            NULL_TREE,
+            stmt_list.0,
+            main_block,
+        );
 
         set_fn_initial(fn_decl, main_block);
         set_fn_saved_tree(fn_decl, bind_expr);
