@@ -80,7 +80,11 @@ static bool rust_langhook_init(void) {
   return true;
 }
 
-static void rust_langhook_parse_file(void) {}
+extern "C" void compile_to_mir(const char **filenames, size_t num_filenames);
+
+static void rust_langhook_parse_file(void) {
+  compile_to_mir(in_fnames, num_in_fnames);
+}
 
 static tree rust_langhook_type_for_mode(enum machine_mode mode,
                                          int unsignedp) {

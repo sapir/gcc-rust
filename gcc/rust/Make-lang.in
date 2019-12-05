@@ -23,9 +23,10 @@ rust_OBJS = \
 	rust/rust1.o \
 	$(END)
 
-rust1$(exeext): attribs.o $(rust_OBJS) $(BACKEND) $(LIBDEPS)
+rust1$(exeext): attribs.o $(rust_OBJS) $(BACKEND) $(LIBDEPS) $(srcdir)/rust/gcc-rust/target/debug/libgcc_rust.a
 	+$(LLINKER) $(ALL_LINKERFLAGS) $(LDFLAGS) -o $@ \
-		  attribs.o $(rust_OBJS) $(BACKEND) $(LIBS) $(BACKENDLIBS)
+		  attribs.o $(rust_OBJS) $(BACKEND) $(LIBS) $(BACKENDLIBS) \
+		  -L$(srcdir)/rust/gcc-rust/target/debug -lgcc_rust -pthread
 
 rust.all.cross:
 

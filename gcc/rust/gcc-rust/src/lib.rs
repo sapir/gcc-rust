@@ -5,17 +5,19 @@ extern crate log;
 extern crate log_settings;
 extern crate rustc;
 extern crate rustc_codegen_utils;
-extern crate rustc_driver;
+// extern crate rustc_driver;
 extern crate rustc_errors;
 extern crate rustc_interface;
 extern crate rustc_metadata;
 extern crate syntax_pos;
 
 use rustc::{hir::def_id::LOCAL_CRATE, mir::Body};
-use rustc_driver::Compilation;
+// use rustc_driver::Compilation;
 use rustc_interface::interface;
+use std::{ffi::CStr, os::raw::c_char};
 use syntax_pos::symbol::Symbol;
 
+/*
 struct GccRustCompilerCalls;
 
 impl rustc_driver::Callbacks for GccRustCompilerCalls {
@@ -92,4 +94,18 @@ fn main() {
     .and_then(|result| result);
 
     std::process::exit(result.is_err() as i32);
+}
+*/
+
+#[no_mangle]
+pub extern "C" fn compile_to_mir(filenames: *const *const c_char, num_filenames: usize) {
+    let filenames = unsafe { std::slice::from_raw_parts(filenames, num_filenames) };
+    let filenames = filenames
+        .into_iter()
+        .map(|&filename| unsafe { CStr::from_ptr(filename) })
+        .collect::<Vec<_>>();
+
+    for filename in filenames {
+        eprintln!("hi {}", filename.to_str().unwrap());
+    }
 }
