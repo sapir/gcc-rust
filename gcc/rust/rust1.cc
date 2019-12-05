@@ -136,16 +136,18 @@ extern "C" tree make_a_tree() {
   return main_fndecl;
 }
 
-extern "C" tree compile_to_mir(const char **filenames, size_t num_filenames);
+extern "C" void compile_to_mir(const char **filenames, size_t num_filenames);
 
-static void rust_langhook_parse_file(void) {
-  tree main_fndecl = compile_to_mir(in_fnames, num_in_fnames);
-
+extern "C" void gimplify_and_finalize(tree fndecl) {
   // Convert from GENERIC to GIMPLE
-  gimplify_function_tree(main_fndecl);
+  gimplify_function_tree(fndecl);
 
   // Insert it into the graph
-  cgraph_node::finalize_function(main_fndecl, true);
+  cgraph_node::finalize_function(fndecl, true);
+}
+
+static void rust_langhook_parse_file(void) {
+  compile_to_mir(in_fnames, num_in_fnames);
 }
 
 static tree rust_langhook_type_for_mode(enum machine_mode mode,

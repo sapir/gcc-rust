@@ -5,26 +5,29 @@ extern crate log;
 extern crate log_settings;
 extern crate rustc;
 extern crate rustc_codegen_utils;
-// extern crate rustc_driver;
+extern crate rustc_driver;
 extern crate rustc_errors;
 extern crate rustc_interface;
 extern crate rustc_metadata;
 extern crate syntax_pos;
 
 use rustc::{hir::def_id::LOCAL_CRATE, mir::Body};
-// use rustc_driver::Compilation;
-use rustc_interface::interface;
+use rustc_driver::Compilation;
+use rustc_interface::{interface, Queries};
 use std::{ffi::CStr, os::raw::c_char};
 use syntax_pos::symbol::Symbol;
 
-/*
 struct GccRustCompilerCalls;
 
 impl rustc_driver::Callbacks for GccRustCompilerCalls {
-    fn after_analysis(&mut self, compiler: &interface::Compiler) -> Compilation {
+    fn after_analysis<'tcx>(
+        &mut self,
+        compiler: &interface::Compiler,
+        queries: &'tcx Queries<'tcx>,
+    ) -> Compilation {
         compiler.session().abort_if_errors();
 
-        compiler.global_ctxt().unwrap().peek_mut().enter(|tcx| {
+        queries.global_ctxt().unwrap().peek_mut().enter(|tcx| {
             for &mir_key in tcx.mir_keys(LOCAL_CRATE) {
                 // TODO: symbol_name?
                 let name = tcx.item_name(mir_key);
@@ -34,6 +37,12 @@ impl rustc_driver::Callbacks for GccRustCompilerCalls {
         });
 
         compiler.session().abort_if_errors();
+
+        unsafe {
+            let tree = make_a_tree();
+            gimplify_and_finalize(tree);
+        }
+
         Compilation::Stop
     }
 }
@@ -70,8 +79,35 @@ fn compile_time_sysroot() -> Option<String> {
     })
 }
 
-fn main() {
-    let mut rustc_args = std::env::args().into_iter().collect::<Vec<_>>();
+#[repr(C)]
+pub struct Tree {
+    _private: [u8; 0],
+}
+
+extern "C" {
+    fn make_a_tree() -> *mut Tree;
+    fn gimplify_and_finalize(tree: *mut Tree);
+}
+
+#[no_mangle]
+pub extern "C" fn compile_to_mir(filenames: *const *const c_char, num_filenames: usize) {
+    let filenames = unsafe { std::slice::from_raw_parts(filenames, num_filenames) };
+    let filenames = filenames
+        .into_iter()
+        .map(|&filename| unsafe { CStr::from_ptr(filename) })
+        .map(|filename| filename.to_str().map(|s| s.to_owned()))
+        .collect::<Result<Vec<_>, _>>();
+    let filenames = match filenames {
+        Ok(fns) => fns,
+        Err(_) => {
+            eprintln!("non-utf8 filename");
+            return;
+        }
+    };
+
+    let mut rustc_args = filenames;
+
+    rustc_args.insert(0, "rustc".to_owned());
 
     // copied from miri
     // Determine sysroot if needed.  Make sure we always call `compile_time_sysroot`
@@ -80,11 +116,11 @@ fn main() {
     // CTFE does not seem powerful enough for that yet.
     if let Some(sysroot) = compile_time_sysroot() {
         let sysroot_flag = "--sysroot";
-        if !rustc_args.iter().any(|e| e == sysroot_flag) {
-            // We need to overwrite the default that librustc would compute.
-            rustc_args.push(sysroot_flag.to_owned());
-            rustc_args.push(sysroot);
-        }
+        // if !rustc_args.iter().any(|e| *e == sysroot_flag) {
+        // We need to overwrite the default that librustc would compute.
+        rustc_args.push(sysroot_flag.to_owned());
+        rustc_args.push(sysroot);
+        // }
     }
 
     rustc_driver::install_ice_hook();
@@ -93,36 +129,7 @@ fn main() {
     })
     .and_then(|result| result);
 
-    std::process::exit(result.is_err() as i32);
-}
-*/
-
-#[repr(C)]
-pub struct Tree {
-    _private: [u8; 0],
-}
-
-extern "C" {
-    fn make_a_tree() -> *mut Tree;
-}
-
-#[no_mangle]
-pub extern "C" fn compile_to_mir(
-    filenames: *const *const c_char,
-    num_filenames: usize,
-) -> *mut Tree {
-    let filenames = unsafe { std::slice::from_raw_parts(filenames, num_filenames) };
-    let filenames = filenames
-        .into_iter()
-        .map(|&filename| unsafe { CStr::from_ptr(filename) })
-        .map(|filename| filename.to_str())
-        .collect::<Result<Vec<_>, _>>();
-
-    if let Ok(filenames) = filenames {
-        for filename in filenames {
-            eprintln!("hi {}", filename);
-        }
+    if result.is_err() {
+        std::process::exit(1);
     }
-
-    unsafe { make_a_tree() }
 }
