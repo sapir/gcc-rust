@@ -13,6 +13,7 @@ fn convert_type(ty: Ty<'_>) -> Tree {
     use TyKind::*;
 
     match ty.kind {
+        Tuple(substs) if substs.is_empty() => TreeIndex::VoidType.into(),
         // TODO: are these correct?
         Int(IntTy::Isize) => IntegerTypeKind::Long.into(),
         Int(IntTy::I8) => IntegerTypeKind::SignedChar.into(),
