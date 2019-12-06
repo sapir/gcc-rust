@@ -2,20 +2,52 @@ use crate::gcc_api::*;
 use rustc::{
     hir::def_id::LOCAL_CRATE,
     mir::{BasicBlockData, Body},
+    ty::{Ty, TyKind},
 };
 use rustc_interface::Queries;
 use std::ffi::CString;
+use syntax::ast::{IntTy, UintTy};
 use syntax_pos::symbol::Symbol;
+
+fn convert_type(ty: Ty<'_>) -> Tree {
+    use TyKind::*;
+
+    match ty.kind {
+        // TODO: are these correct?
+        Int(IntTy::Isize) => IntegerTypeKind::Long.into(),
+        Int(IntTy::I8) => IntegerTypeKind::SignedChar.into(),
+        Int(IntTy::I16) => IntegerTypeKind::Short.into(),
+        Int(IntTy::I32) => IntegerTypeKind::Int.into(),
+        Int(IntTy::I64) => IntegerTypeKind::LongLong.into(),
+        Uint(UintTy::Usize) => IntegerTypeKind::UnsignedLong.into(),
+        Uint(UintTy::U8) => IntegerTypeKind::UnsignedChar.into(),
+        Uint(UintTy::U16) => IntegerTypeKind::UnsignedShort.into(),
+        Uint(UintTy::U32) => IntegerTypeKind::UnsignedInt.into(),
+        Uint(UintTy::U64) => IntegerTypeKind::UnsignedLongLong.into(),
+        _ => unimplemented!("type: {:?}", ty),
+    }
+}
+
+fn make_function_type(body: &Body<'_>) -> Tree {
+    let return_type = convert_type(body.return_ty());
+    let arg_types = body
+        .args_iter()
+        .map(|arg| convert_type(body.local_decls[arg].ty))
+        .collect::<Vec<_>>();
+    Tree::new_function_type(return_type, arg_types)
+}
 
 fn handle_basic_block(block_labels: &[Tree], block: &BasicBlockData) {
     println!("{:?}", block);
 }
 
-fn func_mir_to_gcc<'tcx>(name: Symbol, func_mir: &Body<'tcx>) {
+fn func_mir_to_gcc(name: Symbol, func_mir: &Body<'_>) {
     use IntegerTypeKind::Int;
 
+    let fn_type = make_function_type(func_mir);
+
     let name = CString::new(&*name.as_str()).unwrap();
-    let mut fn_decl = Function::new(&name, Tree::new_function_type(Int.into(), vec![]));
+    let mut fn_decl = Function::new(&name, fn_type);
 
     let mut stmt_list = StatementList::new();
 
