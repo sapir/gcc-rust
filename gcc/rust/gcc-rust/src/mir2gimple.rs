@@ -1,15 +1,19 @@
 use crate::gcc_api::*;
 use rustc::{
     hir::def_id::LOCAL_CRATE,
-    mir::{BasicBlockData, Body},
-    ty::{Ty, TyKind},
+    mir::{
+        interpret::{ConstValue, Scalar},
+        BasicBlock, BasicBlockData, Body, Operand, Place, PlaceBase, Rvalue, StatementKind,
+        TerminatorKind,
+    },
+    ty::{ConstKind, Ty, TyKind},
 };
 use rustc_interface::Queries;
-use std::ffi::CString;
+use std::{convert::TryInto, ffi::CString};
 use syntax::ast::{IntTy, UintTy};
 use syntax_pos::symbol::Symbol;
 
-fn convert_type(ty: Ty<'_>) -> Tree {
+fn convert_type(ty: Ty) -> Tree {
     use TyKind::*;
 
     match ty.kind {
@@ -29,60 +33,168 @@ fn convert_type(ty: Ty<'_>) -> Tree {
     }
 }
 
-fn make_function_type(body: &Body<'_>) -> Tree {
-    let return_type = convert_type(body.return_ty());
-    let arg_types = body
-        .args_iter()
+fn make_function_return_type(body: &Body) -> Tree {
+    convert_type(body.return_ty())
+}
+
+fn make_function_arg_types(body: &Body) -> Vec<Tree> {
+    body.args_iter()
         .map(|arg| convert_type(body.local_decls[arg].ty))
-        .collect::<Vec<_>>();
-    Tree::new_function_type(return_type, arg_types)
+        .collect()
 }
 
-fn handle_basic_block(block_labels: &[Tree], block: &BasicBlockData) {
-    println!("{:?}", block);
+struct FunctionConversion {
+    fn_decl: Function,
+    res_decl: Tree,
+    vars: Vec<Tree>,
+    block_labels: Vec<Tree>,
+    main_gcc_block: Tree,
+    stmt_list: StatementList,
 }
 
-fn func_mir_to_gcc(name: Symbol, func_mir: &Body<'_>) {
-    use IntegerTypeKind::Int;
+impl FunctionConversion {
+    fn new(name: Symbol, body: &Body) -> Self {
+        let return_type = make_function_return_type(body);
+        let arg_types = make_function_arg_types(body);
+        let fn_type = Tree::new_function_type(return_type, arg_types);
 
-    let fn_type = make_function_type(func_mir);
+        let name = CString::new(&*name.as_str()).unwrap();
+        let mut fn_decl = Function::new(&name, fn_type);
+        fn_decl.set_external(false);
+        fn_decl.set_preserve_p(true);
 
-    let name = CString::new(&*name.as_str()).unwrap();
-    let mut fn_decl = Function::new(&name, fn_type);
+        let main_gcc_block = Tree::new_block(NULL_TREE, NULL_TREE, fn_decl.0, NULL_TREE);
+        fn_decl.set_initial(main_gcc_block);
 
-    let mut stmt_list = StatementList::new();
+        let res_decl = Tree::new_result_decl(UNKNOWN_LOCATION, return_type);
+        fn_decl.set_result(res_decl);
 
-    let resdecl = Tree::new_result_decl(UNKNOWN_LOCATION, Int.into());
-    fn_decl.set_result(resdecl);
+        let vars = vec![];
 
-    let set_result = Tree::new_init_expr(resdecl, Tree::new_int_constant(Int, 5));
-    stmt_list.push(Tree::new_return_expr(set_result));
+        let block_labels = body
+            .basic_blocks()
+            .iter()
+            .map(|_bb| Tree::new_artificial_label(UNKNOWN_LOCATION))
+            .collect::<Vec<_>>();
 
-    let main_block = Tree::new_block(NULL_TREE, NULL_TREE, fn_decl.0, NULL_TREE);
-    let bind_expr = Tree::new_bind_expr(NULL_TREE, stmt_list.0, main_block);
+        let stmt_list = StatementList::new();
 
-    fn_decl.set_initial(main_block);
-    fn_decl.set_saved_tree(bind_expr);
-    fn_decl.set_external(false);
-    fn_decl.set_preserve_p(true);
+        Self {
+            fn_decl,
+            res_decl,
+            vars,
+            block_labels,
+            main_gcc_block,
+            stmt_list,
+        }
+    }
 
-    fn_decl.gimplify();
-    fn_decl.finalize();
+    fn get_place(&self, place: &Place) -> Tree {
+        if !place.projection.is_empty() {
+            unimplemented!("non-empty projection");
+        }
 
-    /*
-    let block_labels = func_mir
-        .basic_blocks()
-        .iter()
-        .map(|_bb| unsafe { create_artifical_label(UNKNOWN_LOCATION) })
-        .collect::<Vec<_>>();
+        match &place.base {
+            PlaceBase::Local(local) => {
+                let n = local.as_usize();
+                if n == 0 {
+                    self.res_decl
+                } else if n <= self.vars.len() {
+                    self.vars[n - 1]
+                } else {
+                    unimplemented!("place base {}", n)
+                }
+            }
 
-    println!("name: {}", name.as_str());
-    for bb in func_mir.basic_blocks() {
-        handle_basic_block(&block_labels, bb);
+            _ => unimplemented!("base {:?}", place),
+        }
+    }
+
+    fn convert_rvalue(&self, rv: &Rvalue) -> Tree {
+        use ConstKind::*;
+        use Operand::*;
+        use Rvalue::*;
+        use TyKind::*;
+
+        match rv {
+            Use(Copy(place)) => self.get_place(place),
+            Use(Move(place)) => self.get_place(place),
+
+            Use(Constant(c)) => {
+                let lit = &c.literal;
+
+                match &lit.val {
+                    Value(ConstValue::Scalar(Scalar::Raw { data, size: _ })) => match lit.ty.kind {
+                        Int(_) | Uint(_) => Tree::new_int_constant(
+                            convert_type(lit.ty),
+                            (*data).try_into().unwrap(),
+                        ),
+                        _ => unimplemented!("const {:?} {:?}", lit.ty, lit.val),
+                    },
+
+                    _ => unimplemented!("const {:?} {:?}", lit.ty, lit.val),
+                }
+            }
+
+            _ => unimplemented!("rvalue {:?}", rv),
+        }
+    }
+
+    fn convert_basic_block(&mut self, block_index: BasicBlock, block: &BasicBlockData) {
+        println!("{:?}", block);
+
+        self.stmt_list
+            .push(self.block_labels[block_index.as_usize()]);
+
+        use StatementKind::*;
+        use TerminatorKind::*;
+
+        for stmt in &block.statements {
+            match &stmt.kind {
+                StorageLive(_) | StorageDead(_) => {}
+                Nop => {}
+                Assign(assign) => {
+                    let (place, rvalue) = &**assign;
+                    eprintln!("{:?} = {:?}", place, rvalue);
+
+                    let place = self.get_place(place);
+                    let rvalue = self.convert_rvalue(rvalue);
+                    self.stmt_list.push(Tree::new_init_expr(place, rvalue));
+                }
+                _ => unimplemented!("{:?}", stmt),
+            }
+        }
+
+        let terminator = block.terminator();
+        match &terminator.kind {
+            Return => {
+                self.stmt_list.push(Tree::new_return_expr(self.res_decl));
+            }
+
+            _ => unimplemented!("{:?}", terminator),
+        }
+    }
+
+    fn finalize(mut self) {
+        let bind_expr = Tree::new_bind_expr(NULL_TREE, self.stmt_list.0, self.main_gcc_block);
+        self.fn_decl.set_saved_tree(bind_expr);
+
+        self.fn_decl.gimplify();
+        self.fn_decl.finalize();
+    }
+}
+
+fn func_mir_to_gcc(name: Symbol, func_mir: &Body) {
+    let mut fn_conv = FunctionConversion::new(name, func_mir);
+
+    println!("name: {}", name);
+    for (bb_idx, bb) in func_mir.basic_blocks().iter_enumerated() {
+        fn_conv.convert_basic_block(bb_idx, bb);
     }
 
     println!();
-    */
+
+    fn_conv.finalize();
 }
 
 pub fn mir2gimple<'tcx>(queries: &'tcx Queries<'tcx>) {

@@ -478,7 +478,7 @@ impl Tree {
         unsafe { _build2(TreeCode::InitExpr, TreeIndex::VoidType.into(), var, value) }
     }
 
-    pub fn new_int_constant(int_type: IntegerTypeKind, value: i64) -> Self {
+    pub fn new_int_constant<T: Into<Tree>>(int_type: T, value: i64) -> Self {
         unsafe { build_int_constant(int_type.into(), value) }
     }
 
