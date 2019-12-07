@@ -155,7 +155,7 @@ extern "C" {
   tree _build_fn_decl(const char *name, tree type) {
     return build_fn_decl(name, type);
   }
-  tree _create_artifical_label(location_t loc) {
+  tree _create_artificial_label(location_t loc) {
     return create_artificial_label(loc);
   }
   void _gimplify_function_tree(tree t) {

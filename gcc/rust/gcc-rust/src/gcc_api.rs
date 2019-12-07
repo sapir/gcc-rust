@@ -505,6 +505,10 @@ impl Tree {
     pub fn new_result_decl(loc: Location, type_: Tree) -> Self {
         unsafe { _build_decl(loc, TreeCode::ResultDecl, NULL_TREE, type_) }
     }
+
+    pub fn new_artificial_label(loc: Location) -> Self {
+        unsafe { _create_artificial_label(loc) }
+    }
 }
 
 extern "C" {
@@ -545,7 +549,7 @@ extern "C" {
     fn _build_pointer_type(totype: Tree) -> Tree;
     fn _build_function_type_array(returntype: Tree, num_args: usize, argtypes: *mut Tree) -> Tree;
     fn _build_fn_decl(name: *const c_char, decltype: Tree) -> Tree;
-    fn _create_artifical_label(loc: Location) -> Tree;
+    fn _create_artificial_label(loc: Location) -> Tree;
     fn _gimplify_function_tree(tree: Tree);
 
     fn build_int_constant(inttype: Tree, value: i64) -> Tree;
