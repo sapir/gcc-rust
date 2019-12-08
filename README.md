@@ -25,6 +25,7 @@ functions in `gcc/rust/rust1.cc`.
 
 Build Rust with this patch: https://github.com/rust-lang/rust/pull/67126
 
+```sh
 mkdir gcc
 cd gcc
 git clone --depth 50 -b rust https://github.com/sapir/gcc-rust/ gcc-src
@@ -38,3 +39,4 @@ make install
 
 cd ..
 gcc-install/bin/gcc whatever.rs -o whatever.so -shared
+```
