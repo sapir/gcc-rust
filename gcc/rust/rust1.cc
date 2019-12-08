@@ -148,9 +148,9 @@ extern "C" {
   tree _build_function_type_array(
       tree returntype,
       size_t num_args,
-      tree *argtypes
+      tree *arg_types
   ) {
-    return build_function_type_array(returntype, num_args, argtypes);
+    return build_function_type_array(returntype, num_args, arg_types);
   }
   tree _build_fn_decl(const char *name, tree type) {
     return build_fn_decl(name, type);
@@ -184,6 +184,30 @@ extern "C" {
 
   void set_fn_preserve_p(tree fn_decl, bool value) {
     DECL_PRESERVE_P(fn_decl) = value;
+  }
+
+  void add_fn_parm_decls(
+    tree fn_decl,
+    size_t num_args,
+    tree *arg_types,
+    tree *decls
+  ) {
+    tree prev_parm_decl = NULL_TREE;
+
+    for (size_t i = num_args; i > 0; --i) {
+      tree arg_type = arg_types[i - 1];
+      tree parm_decl = build_decl(UNKNOWN_LOCATION, PARM_DECL, NULL_TREE, arg_type);
+      DECL_CONTEXT(parm_decl) = fn_decl;
+      // passed in with the same type as the regular type
+      DECL_ARG_TYPE(parm_decl) = arg_type;
+      DECL_CHAIN(parm_decl) = prev_parm_decl;
+
+      decls[i - 1] = parm_decl;
+
+      prev_parm_decl = parm_decl;
+    }
+
+    DECL_ARGUMENTS(fn_decl) = prev_parm_decl;
   }
 
   void finalize_decl(tree decl) {

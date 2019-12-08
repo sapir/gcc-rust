@@ -470,8 +470,8 @@ impl From<IntegerTypeKind> for Tree {
 }
 
 impl Tree {
-    pub fn new_function_type(return_type: Tree, mut arg_types: Vec<Tree>) -> Self {
-        unsafe { _build_function_type_array(return_type, arg_types.len(), arg_types.as_mut_ptr()) }
+    pub fn new_function_type(return_type: Tree, arg_types: &[Tree]) -> Self {
+        unsafe { _build_function_type_array(return_type, arg_types.len(), arg_types.as_ptr()) }
     }
 
     pub fn new_init_expr(var: Tree, value: Tree) -> Self {
@@ -544,10 +544,14 @@ extern "C" {
         returntype: Tree,
         fn_ptr: Tree,
         num_args: usize,
-        args: *mut Tree,
+        args: *const Tree,
     ) -> Tree;
     fn _build_pointer_type(totype: Tree) -> Tree;
-    fn _build_function_type_array(returntype: Tree, num_args: usize, argtypes: *mut Tree) -> Tree;
+    fn _build_function_type_array(
+        returntype: Tree,
+        num_args: usize,
+        arg_types: *const Tree,
+    ) -> Tree;
     fn _build_fn_decl(name: *const c_char, decltype: Tree) -> Tree;
     fn _create_artificial_label(loc: Location) -> Tree;
     fn _gimplify_function_tree(tree: Tree);
@@ -558,6 +562,7 @@ extern "C" {
     fn set_fn_saved_tree(fn_decl: Tree, tree: Tree);
     fn set_fn_external(fn_decl: Tree, value: bool);
     fn set_fn_preserve_p(fn_decl: Tree, value: bool);
+    fn add_fn_parm_decls(fn_decl: Tree, num_args: usize, arg_types: *const Tree, decls: *mut Tree);
     fn finalize_decl(tree: Tree);
     fn finalize_function(tree: Tree, no_collect: bool);
 }
@@ -611,6 +616,21 @@ impl Function {
         unsafe {
             set_fn_preserve_p(self.0, value);
         }
+    }
+
+    pub fn add_parm_decls(&mut self, arg_types: &[Tree]) -> Vec<Tree> {
+        let mut decls = vec![NULL_TREE; arg_types.len()];
+
+        unsafe {
+            add_fn_parm_decls(
+                self.0,
+                arg_types.len(),
+                arg_types.as_ptr(),
+                decls.as_mut_ptr(),
+            );
+        }
+
+        decls
     }
 
     pub fn gimplify(&mut self) {

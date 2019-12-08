@@ -46,6 +46,7 @@ fn make_function_arg_types(body: &Body) -> Vec<Tree> {
 struct FunctionConversion {
     fn_decl: Function,
     res_decl: Tree,
+    parm_decls: Vec<Tree>,
     vars: Vec<Tree>,
     block_labels: Vec<Tree>,
     main_gcc_block: Tree,
@@ -56,7 +57,7 @@ impl FunctionConversion {
     fn new(name: Symbol, body: &Body) -> Self {
         let return_type = make_function_return_type(body);
         let arg_types = make_function_arg_types(body);
-        let fn_type = Tree::new_function_type(return_type, arg_types);
+        let fn_type = Tree::new_function_type(return_type, &arg_types);
 
         let name = CString::new(&*name.as_str()).unwrap();
         let mut fn_decl = Function::new(&name, fn_type);
@@ -68,6 +69,8 @@ impl FunctionConversion {
 
         let res_decl = Tree::new_result_decl(UNKNOWN_LOCATION, return_type);
         fn_decl.set_result(res_decl);
+
+        let parm_decls = fn_decl.add_parm_decls(&arg_types);
 
         let vars = vec![];
 
@@ -82,6 +85,7 @@ impl FunctionConversion {
         Self {
             fn_decl,
             res_decl,
+            parm_decls,
             vars,
             block_labels,
             main_gcc_block,
@@ -99,8 +103,8 @@ impl FunctionConversion {
                 let n = local.as_usize();
                 if n == 0 {
                     self.res_decl
-                } else if n <= self.vars.len() {
-                    self.vars[n - 1]
+                } else if n <= self.parm_decls.len() {
+                    self.parm_decls[n - 1]
                 } else {
                     unimplemented!("place base {}", n)
                 }
