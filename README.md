@@ -33,7 +33,11 @@ git clone --depth 50 -b rust https://github.com/sapir/gcc-rust/ gcc-src
 
 mkdir gcc-build
 cd gcc-build
-../gcc-src/configure --prefix=$(pwd)/../gcc-install --enable-languages=c,c++,rust --disable-multilib --disable-bootstrap
+../gcc-src/configure \
+    --prefix=$(pwd)/../gcc-install \
+    --enable-languages=c,c++,rust \
+    --disable-multilib \
+    --disable-bootstrap
 make
 make install
 
