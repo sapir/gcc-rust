@@ -4,7 +4,7 @@ This is currently at a very early stage. At the time of writing, it can compile
 trivial functions, like:
 
 ```rust
-fn my_function(x: i32) { x }
+fn my_function(x: i32) -> i32 { x }
 ```
 
 But e.g. control flow doesn't work yet.
