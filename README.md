@@ -1,5 +1,23 @@
 # Rust frontend for GCC
 
+This is currently at a very early stage. At the time of writing, it can compile
+trivial functions, like:
+
+```rust
+fn my_function(x: i32) { x }
+```
+
+But e.g. control flow doesn't work yet.
+
+
+## How does it work?
+
+The `gcc/rust` directory contains a frontend with some boilerplate that links to
+a Rust crate in `gcc/rust/gcc_rust`. The Rust code runs rustc up to the MIR
+stage, then generates a GENERIC tree (a GCC IR) and passes it back to the C
+code. Access to GCC's internal APIs (especially macros) is handled by C wrapper
+functions in `gcc/rust/rust1.cc`.
+
 
 ## Build instructions
 
@@ -19,4 +37,4 @@ make
 make install
 
 cd ..
-gcc-install/bin/gcc whatever.rs -o whatever
+gcc-install/bin/gcc whatever.rs -o whatever.so -shared
