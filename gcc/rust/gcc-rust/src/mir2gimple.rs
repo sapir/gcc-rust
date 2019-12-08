@@ -144,7 +144,7 @@ impl FunctionConversion {
                         _ => unimplemented!("const {:?} {:?}", lit.ty, lit.val),
                     },
 
-                    _ => unimplemented!("const {:?} {:?}", lit.ty, lit.val),
+                    _ => unimplemented!("literal {:?} {:?}", lit.ty, lit.val),
                 }
             }
 
