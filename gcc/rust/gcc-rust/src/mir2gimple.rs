@@ -45,6 +45,7 @@ fn make_function_arg_types(body: &Body) -> Vec<Tree> {
 
 struct FunctionConversion {
     fn_decl: Function,
+    return_type_is_void: bool,
     res_decl: Tree,
     parm_decls: Vec<Tree>,
     vars: Vec<Tree>,
@@ -55,6 +56,12 @@ struct FunctionConversion {
 
 impl FunctionConversion {
     fn new(name: Symbol, body: &Body) -> Self {
+        let return_type_is_void = if let TyKind::Tuple(substs) = &body.return_ty().kind {
+            substs.is_empty()
+        } else {
+            false
+        };
+
         let return_type = make_function_return_type(body);
         let arg_types = make_function_arg_types(body);
         let fn_type = Tree::new_function_type(return_type, &arg_types);
@@ -84,6 +91,7 @@ impl FunctionConversion {
 
         Self {
             fn_decl,
+            return_type_is_void,
             res_decl,
             parm_decls,
             vars,
@@ -172,7 +180,13 @@ impl FunctionConversion {
         let terminator = block.terminator();
         match &terminator.kind {
             Return => {
-                self.stmt_list.push(Tree::new_return_expr(self.res_decl));
+                let return_value = if self.return_type_is_void {
+                    NULL_TREE
+                } else {
+                    self.res_decl
+                };
+
+                self.stmt_list.push(Tree::new_return_expr(return_value));
             }
 
             _ => unimplemented!("{:?}", terminator),
