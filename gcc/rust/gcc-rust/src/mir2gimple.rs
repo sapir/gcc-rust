@@ -3,10 +3,10 @@ use rustc::{
     hir::def_id::LOCAL_CRATE,
     mir::{
         interpret::{ConstValue, Scalar},
-        BasicBlock, BasicBlockData, Body, Local, Operand, Place, PlaceBase, Rvalue, StatementKind,
-        TerminatorKind,
+        BasicBlock, BasicBlockData, BinOp, Body, Local, Operand, Place, PlaceBase, Rvalue,
+        StatementKind, TerminatorKind,
     },
-    ty::{ConstKind, Ty, TyKind},
+    ty::{ConstKind, Ty, TyCtxt, TyKind},
 };
 use rustc_interface::Queries;
 use std::{convert::TryInto, ffi::CString};
@@ -50,7 +50,9 @@ fn make_function_arg_types(body: &Body) -> Vec<Tree> {
     convert_decls(body, body.args_iter())
 }
 
-struct FunctionConversion {
+struct FunctionConversion<'tcx> {
+    tcx: TyCtxt<'tcx>,
+    body: &'tcx Body<'tcx>,
     fn_decl: Function,
     return_type_is_void: bool,
     res_decl: Tree,
@@ -61,8 +63,8 @@ struct FunctionConversion {
     stmt_list: StatementList,
 }
 
-impl FunctionConversion {
-    fn new(name: Symbol, body: &Body) -> Self {
+impl<'tcx> FunctionConversion<'tcx> {
+    fn new(tcx: TyCtxt<'tcx>, name: Symbol, body: &'tcx Body<'tcx>) -> Self {
         let return_type_is_void = if let TyKind::Tuple(substs) = &body.return_ty().kind {
             substs.is_empty()
         } else {
@@ -100,6 +102,8 @@ impl FunctionConversion {
         let stmt_list = StatementList::new();
 
         Self {
+            tcx,
+            body,
             fn_decl,
             return_type_is_void,
             res_decl,
@@ -132,17 +136,16 @@ impl FunctionConversion {
         }
     }
 
-    fn convert_rvalue(&self, rv: &Rvalue) -> Tree {
+    fn convert_operand(&self, operand: &Operand) -> Tree {
         use ConstKind::*;
         use Operand::*;
-        use Rvalue::*;
         use TyKind::*;
 
-        match rv {
-            Use(Copy(place)) => self.get_place(place),
-            Use(Move(place)) => self.get_place(place),
+        match operand {
+            Copy(place) => self.get_place(place),
+            Move(place) => self.get_place(place),
 
-            Use(Constant(c)) => {
+            Constant(c) => {
                 let lit = &c.literal;
 
                 match &lit.val {
@@ -157,12 +160,61 @@ impl FunctionConversion {
                     _ => unimplemented!("literal {:?} {:?}", lit.ty, lit.val),
                 }
             }
+        }
+    }
+
+    fn convert_rvalue(&self, rv: &Rvalue<'tcx>) -> Tree {
+        use Rvalue::*;
+
+        match rv {
+            Use(operand) => self.convert_operand(operand),
+
+            BinaryOp(op, operand1, operand2) => {
+                use TreeCode::*;
+
+                let (code, is_boolean) = match op {
+                    BinOp::Add => (PlusExpr, false),
+                    BinOp::Sub => (MinusExpr, false),
+                    BinOp::Mul => (MultExpr, false),
+                    // TODO: non-integer division
+                    // TODO: verify truncating type is correct
+                    BinOp::Div => (TruncDivExpr, false),
+                    // TODO: non-integer division
+                    // TODO: verify truncating type is correct
+                    BinOp::Rem => (TruncModExpr, false),
+                    BinOp::BitXor => (BitXorExpr, false),
+                    BinOp::BitAnd => (BitAndExpr, false),
+                    BinOp::BitOr => (BitIorExpr, false),
+                    BinOp::Shl => (LShiftExpr, false),
+                    BinOp::Shr => (RShiftExpr, false),
+                    BinOp::Eq => (EqExpr, true),
+                    BinOp::Lt => (LtExpr, true),
+                    BinOp::Le => (LeExpr, true),
+                    BinOp::Ne => (NeExpr, true),
+                    BinOp::Gt => (GtExpr, true),
+                    BinOp::Ge => (GeExpr, true),
+                    // TODO: offset
+                    _ => unimplemented!("binop {:?}", op),
+                };
+
+                // TODO: this isn't really always the correct type
+                let type_ = if is_boolean {
+                    TreeIndex::BooleanType.into()
+                } else {
+                    convert_type(operand1.ty(&self.body.local_decls, self.tcx))
+                };
+
+                let operand1 = self.convert_operand(operand1);
+                let operand2 = self.convert_operand(operand2);
+
+                Tree::new2(code, type_, operand1, operand2)
+            }
 
             _ => unimplemented!("rvalue {:?}", rv),
         }
     }
 
-    fn convert_basic_block(&mut self, block_index: BasicBlock, block: &BasicBlockData) {
+    fn convert_basic_block(&mut self, block_index: BasicBlock, block: &BasicBlockData<'tcx>) {
         println!("{:?}", block);
 
         self.stmt_list
@@ -213,8 +265,8 @@ impl FunctionConversion {
     }
 }
 
-fn func_mir_to_gcc(name: Symbol, func_mir: &Body) {
-    let mut fn_conv = FunctionConversion::new(name, func_mir);
+fn func_mir_to_gcc<'tcx>(tcx: TyCtxt<'tcx>, name: Symbol, func_mir: &'tcx Body) {
+    let mut fn_conv = FunctionConversion::new(tcx, name, func_mir);
 
     println!("name: {}", name);
     for (bb_idx, bb) in func_mir.basic_blocks().iter_enumerated() {
@@ -232,7 +284,7 @@ pub fn mir2gimple<'tcx>(queries: &'tcx Queries<'tcx>) {
             // TODO: symbol_name?
             let name = tcx.item_name(mir_key);
             let mir = tcx.optimized_mir(mir_key);
-            func_mir_to_gcc(name, mir);
+            func_mir_to_gcc(tcx, name, mir);
         }
     });
 }

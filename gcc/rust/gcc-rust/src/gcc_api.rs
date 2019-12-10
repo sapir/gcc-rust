@@ -303,10 +303,10 @@ pub enum TreeCode {
     MaxExpr,
     AbsExpr,
     AbsuExpr,
-    LshiftExpr,
-    RshiftExpr,
-    LrotateExpr,
-    RrotateExpr,
+    LShiftExpr,
+    RShiftExpr,
+    LRotateExpr,
+    RRotateExpr,
     BitIorExpr,
     BitXorExpr,
     BitAndExpr,
@@ -419,7 +419,7 @@ pub enum TreeCode {
     WidenMultExpr,
     WidenMultPlusExpr,
     WidenMultMinusExpr,
-    WidenLshiftExpr,
+    WidenLShiftExpr,
     VecWidenMultHiExpr,
     VecWidenMultLoExpr,
     VecWidenMultEvenExpr,
@@ -434,8 +434,8 @@ pub enum TreeCode {
     VecPackSatExpr,
     VecPackFixTruncExpr,
     VecPackFloatExpr,
-    VecWidenLshiftHiExpr,
-    VecWidenLshiftLoExpr,
+    VecWidenLShiftHiExpr,
+    VecWidenLShiftLoExpr,
     PredictExpr,
     OptimizationNode,
     TargetOptionNode,
@@ -474,8 +474,12 @@ impl Tree {
         unsafe { _build_function_type_array(return_type, arg_types.len(), arg_types.as_ptr()) }
     }
 
+    pub fn new2(code: TreeCode, type_: Tree, arg0: Tree, arg1: Tree) -> Self {
+        unsafe { _build2(code, type_, arg0, arg1) }
+    }
+
     pub fn new_init_expr(var: Tree, value: Tree) -> Self {
-        unsafe { _build2(TreeCode::InitExpr, TreeIndex::VoidType.into(), var, value) }
+        Self::new2(TreeCode::InitExpr, TreeIndex::VoidType.into(), var, value)
     }
 
     pub fn new_int_constant<T: Into<Tree>>(int_type: T, value: i64) -> Self {
