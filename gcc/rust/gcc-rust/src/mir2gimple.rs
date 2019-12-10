@@ -18,6 +18,7 @@ fn convert_type(ty: Ty) -> Tree {
 
     match ty.kind {
         Tuple(substs) if substs.is_empty() => TreeIndex::VoidType.into(),
+        Bool => TreeIndex::BooleanType.into(),
         // TODO: are these correct?
         Int(IntTy::Isize) => IntegerTypeKind::Long.into(),
         Int(IntTy::I8) => IntegerTypeKind::SignedChar.into(),
