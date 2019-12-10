@@ -166,6 +166,38 @@ extern "C" {
     return build_int_cst_type(int_type, value);
   }
 
+  void make_decl_chain(
+    enum tree_code code,
+    size_t num_decls,
+    const tree *types,
+    tree *decls
+  ) {
+    tree prev_decl = NULL_TREE;
+
+    for (size_t i = num_decls; i > 0; --i) {
+      tree type = types[i - 1];
+      tree decl = build_decl(UNKNOWN_LOCATION, code, NULL_TREE, type);
+      if (PARM_DECL == code) {
+        // parameters are passed in with the same type as the regular type
+        DECL_ARG_TYPE(decl) = type;
+      }
+      DECL_CHAIN(decl) = prev_decl;
+
+      decls[i - 1] = decl;
+
+      prev_decl = decl;
+    }
+  }
+
+  void set_decl_chain_context(
+    tree chain_head,
+    tree context
+  ) {
+    for (tree cur = chain_head; cur; cur = DECL_CHAIN(cur)) {
+      DECL_CONTEXT(cur) = context;
+    }
+  }
+
   void set_fn_result(tree fn_decl, tree result) {
     DECL_RESULT(fn_decl) = result;
   }
@@ -186,28 +218,8 @@ extern "C" {
     DECL_PRESERVE_P(fn_decl) = value;
   }
 
-  void add_fn_parm_decls(
-    tree fn_decl,
-    size_t num_args,
-    tree *arg_types,
-    tree *decls
-  ) {
-    tree prev_parm_decl = NULL_TREE;
-
-    for (size_t i = num_args; i > 0; --i) {
-      tree arg_type = arg_types[i - 1];
-      tree parm_decl = build_decl(UNKNOWN_LOCATION, PARM_DECL, NULL_TREE, arg_type);
-      DECL_CONTEXT(parm_decl) = fn_decl;
-      // passed in with the same type as the regular type
-      DECL_ARG_TYPE(parm_decl) = arg_type;
-      DECL_CHAIN(parm_decl) = prev_parm_decl;
-
-      decls[i - 1] = parm_decl;
-
-      prev_parm_decl = parm_decl;
-    }
-
-    DECL_ARGUMENTS(fn_decl) = prev_parm_decl;
+  void attach_fn_parm_decls(tree fn_decl, tree decl_chain) {
+    DECL_ARGUMENTS(fn_decl) = decl_chain;
   }
 
   void finalize_decl(tree decl) {

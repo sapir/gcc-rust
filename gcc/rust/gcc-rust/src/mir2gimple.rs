@@ -3,7 +3,7 @@ use rustc::{
     hir::def_id::LOCAL_CRATE,
     mir::{
         interpret::{ConstValue, Scalar},
-        BasicBlock, BasicBlockData, Body, Operand, Place, PlaceBase, Rvalue, StatementKind,
+        BasicBlock, BasicBlockData, Body, Local, Operand, Place, PlaceBase, Rvalue, StatementKind,
         TerminatorKind,
     },
     ty::{ConstKind, Ty, TyKind},
@@ -37,18 +37,24 @@ fn make_function_return_type(body: &Body) -> Tree {
     convert_type(body.return_ty())
 }
 
-fn make_function_arg_types(body: &Body) -> Vec<Tree> {
-    body.args_iter()
-        .map(|arg| convert_type(body.local_decls[arg].ty))
+fn convert_decls<I>(body: &Body, iter: I) -> Vec<Tree>
+where
+    I: Iterator<Item = Local>,
+{
+    iter.map(|local| convert_type(body.local_decls[local].ty))
         .collect()
+}
+
+fn make_function_arg_types(body: &Body) -> Vec<Tree> {
+    convert_decls(body, body.args_iter())
 }
 
 struct FunctionConversion {
     fn_decl: Function,
     return_type_is_void: bool,
     res_decl: Tree,
-    parm_decls: Vec<Tree>,
-    vars: Vec<Tree>,
+    parm_decls: DeclList,
+    vars: DeclList,
     block_labels: Vec<Tree>,
     main_gcc_block: Tree,
     stmt_list: StatementList,
@@ -77,9 +83,12 @@ impl FunctionConversion {
         let res_decl = Tree::new_result_decl(UNKNOWN_LOCATION, return_type);
         fn_decl.set_result(res_decl);
 
-        let parm_decls = fn_decl.add_parm_decls(&arg_types);
+        let parm_decls = DeclList::new(TreeCode::ParmDecl, &arg_types);
+        fn_decl.attach_parm_decls(&parm_decls);
 
-        let vars = vec![];
+        let var_types = convert_decls(body, body.vars_and_temps_iter());
+        let vars = DeclList::new(TreeCode::VarDecl, &var_types);
+        assert_eq!(1 + arg_types.len() + vars.len(), body.local_decls.len());
 
         let block_labels = body
             .basic_blocks()
@@ -114,7 +123,7 @@ impl FunctionConversion {
                 } else if n <= self.parm_decls.len() {
                     self.parm_decls[n - 1]
                 } else {
-                    unimplemented!("place base {}", n)
+                    self.vars[n - self.parm_decls.len() - 1]
                 }
             }
 
@@ -194,7 +203,8 @@ impl FunctionConversion {
     }
 
     fn finalize(mut self) {
-        let bind_expr = Tree::new_bind_expr(NULL_TREE, self.stmt_list.0, self.main_gcc_block);
+        let vars_chain_head = self.vars.get(0).map(|t| *t).unwrap_or(NULL_TREE);
+        let bind_expr = Tree::new_bind_expr(vars_chain_head, self.stmt_list.0, self.main_gcc_block);
         self.fn_decl.set_saved_tree(bind_expr);
 
         self.fn_decl.gimplify();

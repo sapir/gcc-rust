@@ -491,7 +491,7 @@ impl Tree {
     }
 
     pub fn new_bind_expr(vars: Tree, body: Tree, block: Tree) -> Self {
-        unsafe {
+        let bind_expr = unsafe {
             _build3(
                 TreeCode::BindExpr,
                 TreeIndex::VoidType.into(),
@@ -499,7 +499,15 @@ impl Tree {
                 body,
                 block,
             )
+        };
+
+        if vars.0 != NULL_TREE.0 {
+            unsafe {
+                set_decl_chain_context(vars, bind_expr);
+            }
         }
+
+        bind_expr
     }
 
     pub fn new_result_decl(loc: Location, type_: Tree) -> Self {
@@ -557,12 +565,14 @@ extern "C" {
     fn _gimplify_function_tree(tree: Tree);
 
     fn build_int_constant(inttype: Tree, value: i64) -> Tree;
+    fn make_decl_chain(code: TreeCode, num_decls: usize, types: *const Tree, decls: *mut Tree);
+    fn set_decl_chain_context(chain_head: Tree, context: Tree);
     fn set_fn_result(fn_decl: Tree, result: Tree);
     fn set_fn_initial(fn_decl: Tree, tree: Tree);
     fn set_fn_saved_tree(fn_decl: Tree, tree: Tree);
     fn set_fn_external(fn_decl: Tree, value: bool);
     fn set_fn_preserve_p(fn_decl: Tree, value: bool);
-    fn add_fn_parm_decls(fn_decl: Tree, num_args: usize, arg_types: *const Tree, decls: *mut Tree);
+    fn attach_fn_parm_decls(fn_decl: Tree, decl_chain: Tree);
     fn finalize_decl(tree: Tree);
     fn finalize_function(tree: Tree, no_collect: bool);
 }
@@ -578,6 +588,40 @@ impl StatementList {
         unsafe {
             _append_to_statement_list(stmt, &mut self.0);
         }
+    }
+}
+
+pub struct DeclList(Vec<Tree>);
+
+impl DeclList {
+    pub fn new(code: TreeCode, types: &[Tree]) -> Self {
+        let mut decls = vec![NULL_TREE; types.len()];
+
+        unsafe {
+            make_decl_chain(code, types.len(), types.as_ptr(), decls.as_mut_ptr());
+        }
+
+        DeclList(decls)
+    }
+
+    pub fn head(&self) -> Option<Tree> {
+        self.0.get(0).copied()
+    }
+
+    pub fn set_context(&mut self, context: Tree) {
+        if let Some(decl) = self.head() {
+            unsafe {
+                set_decl_chain_context(decl, context);
+            }
+        }
+    }
+}
+
+impl std::ops::Deref for DeclList {
+    type Target = [Tree];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
 }
 
@@ -618,19 +662,10 @@ impl Function {
         }
     }
 
-    pub fn add_parm_decls(&mut self, arg_types: &[Tree]) -> Vec<Tree> {
-        let mut decls = vec![NULL_TREE; arg_types.len()];
-
+    pub fn attach_parm_decls(&mut self, decls: &DeclList) {
         unsafe {
-            add_fn_parm_decls(
-                self.0,
-                arg_types.len(),
-                arg_types.as_ptr(),
-                decls.as_mut_ptr(),
-            );
+            attach_fn_parm_decls(self.0, decls.head().unwrap_or(NULL_TREE));
         }
-
-        decls
     }
 
     pub fn gimplify(&mut self) {
