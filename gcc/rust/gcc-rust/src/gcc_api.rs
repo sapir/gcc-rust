@@ -521,6 +521,10 @@ impl Tree {
     pub fn new_artificial_label(loc: Location) -> Self {
         unsafe { _create_artificial_label(loc) }
     }
+
+    pub fn new_goto(label: Tree) -> Self {
+        unsafe { _build1(TreeCode::GotoExpr, TreeIndex::VoidType.into(), label) }
+    }
 }
 
 extern "C" {

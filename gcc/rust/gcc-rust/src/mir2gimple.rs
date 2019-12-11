@@ -241,6 +241,11 @@ impl<'tcx> FunctionConversion<'tcx> {
 
         let terminator = block.terminator();
         match &terminator.kind {
+            Goto { target } => {
+                let target = self.block_labels[target.as_usize()];
+                self.stmt_list.push(Tree::new_goto(target));
+            }
+
             Return => {
                 let return_value = if self.return_type_is_void {
                     NULL_TREE
