@@ -525,6 +525,18 @@ impl Tree {
     pub fn new_goto(label: Tree) -> Self {
         unsafe { _build1(TreeCode::GotoExpr, TreeIndex::VoidType.into(), label) }
     }
+
+    pub fn new_cond_expr(cond: Tree, true_expr: Tree, false_expr: Tree) -> Self {
+        unsafe {
+            _build3(
+                TreeCode::CondExpr,
+                TreeIndex::VoidType.into(),
+                cond,
+                true_expr,
+                false_expr,
+            )
+        }
+    }
 }
 
 extern "C" {

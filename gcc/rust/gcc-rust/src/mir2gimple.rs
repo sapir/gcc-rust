@@ -214,6 +214,11 @@ impl<'tcx> FunctionConversion<'tcx> {
         }
     }
 
+    fn convert_goto(&self, target: BasicBlock) -> Tree {
+        let target = self.block_labels[target.as_usize()];
+        Tree::new_goto(target)
+    }
+
     fn convert_basic_block(&mut self, block_index: BasicBlock, block: &BasicBlockData<'tcx>) {
         println!("{:?}", block);
 
@@ -242,8 +247,31 @@ impl<'tcx> FunctionConversion<'tcx> {
         let terminator = block.terminator();
         match &terminator.kind {
             Goto { target } => {
-                let target = self.block_labels[target.as_usize()];
-                self.stmt_list.push(Tree::new_goto(target));
+                self.stmt_list.push(self.convert_goto(*target));
+            }
+
+            SwitchInt {
+                discr,
+                switch_ty,
+                values,
+                targets,
+            } => {
+                if switch_ty.kind != TyKind::Bool {
+                    unimplemented!("switch/if with non-boolean type");
+                }
+
+                assert_eq!(values.len(), 1);
+                assert_eq!(targets.len(), values.len() + 1);
+                let true_idx = if values[0] != 0 { 0 } else { 1 };
+                let false_idx = 1 - true_idx;
+
+                let true_expr = self.convert_goto(targets[true_idx]);
+                let false_expr = self.convert_goto(targets[false_idx]);
+
+                let cond = self.convert_operand(discr);
+
+                self.stmt_list
+                    .push(Tree::new_cond_expr(cond, true_expr, false_expr));
             }
 
             Return => {
