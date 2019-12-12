@@ -507,7 +507,7 @@ impl Tree {
 
         if vars.0 != NULL_TREE.0 {
             unsafe {
-                set_decl_chain_context(vars, bind_expr);
+                set_decl_chain_context(vars, block);
             }
         }
 
