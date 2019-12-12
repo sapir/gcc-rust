@@ -96,7 +96,7 @@ impl<'tcx> FunctionConversion<'tcx> {
         let block_labels = body
             .basic_blocks()
             .iter()
-            .map(|_bb| Tree::new_artificial_label(UNKNOWN_LOCATION))
+            .map(|_bb| Tree::new_label_decl(UNKNOWN_LOCATION, fn_decl.0))
             .collect::<Vec<_>>();
 
         let stmt_list = StatementList::new();
@@ -222,8 +222,9 @@ impl<'tcx> FunctionConversion<'tcx> {
     fn convert_basic_block(&mut self, block_index: BasicBlock, block: &BasicBlockData<'tcx>) {
         println!("{:?}", block);
 
-        self.stmt_list
-            .push(self.block_labels[block_index.as_usize()]);
+        self.stmt_list.push(Tree::new_label_expr(
+            self.block_labels[block_index.as_usize()],
+        ));
 
         use StatementKind::*;
         use TerminatorKind::*;

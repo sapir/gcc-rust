@@ -447,8 +447,8 @@ pub struct TreeNode {
     _private: [u8; 0],
 }
 
-#[repr(transparent)]
 #[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct Tree(*mut TreeNode);
 
 pub const NULL_TREE: Tree = Tree(null_mut());
@@ -518,12 +518,16 @@ impl Tree {
         unsafe { _build_decl(loc, TreeCode::ResultDecl, NULL_TREE, type_) }
     }
 
-    pub fn new_artificial_label(loc: Location) -> Self {
-        unsafe { _create_artificial_label(loc) }
+    pub fn new_label_decl(loc: Location, context: Tree) -> Self {
+        unsafe { build_label_decl(loc, context) }
     }
 
     pub fn new_goto(label: Tree) -> Self {
         unsafe { _build1(TreeCode::GotoExpr, TreeIndex::VoidType.into(), label) }
+    }
+
+    pub fn new_label_expr(decl: Tree) -> Self {
+        unsafe { _build1(TreeCode::LabelExpr, TreeIndex::VoidType.into(), decl) }
     }
 
     pub fn new_cond_expr(cond: Tree, true_expr: Tree, false_expr: Tree) -> Self {
@@ -581,10 +585,10 @@ extern "C" {
         arg_types: *const Tree,
     ) -> Tree;
     fn _build_fn_decl(name: *const c_char, decltype: Tree) -> Tree;
-    fn _create_artificial_label(loc: Location) -> Tree;
     fn _gimplify_function_tree(tree: Tree);
 
     fn build_int_constant(inttype: Tree, value: i64) -> Tree;
+    fn build_label_decl(loc: Location, context: Tree) -> Tree;
     fn make_decl_chain(code: TreeCode, num_decls: usize, types: *const Tree, decls: *mut Tree);
     fn set_decl_chain_context(chain_head: Tree, context: Tree);
     fn set_fn_result(fn_decl: Tree, result: Tree);
@@ -645,6 +649,8 @@ impl std::ops::Deref for DeclList {
     }
 }
 
+#[derive(Clone, Copy)]
+#[repr(transparent)]
 pub struct Function(pub Tree);
 
 impl Function {

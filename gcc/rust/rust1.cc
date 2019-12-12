@@ -155,15 +155,22 @@ extern "C" {
   tree _build_fn_decl(const char *name, tree type) {
     return build_fn_decl(name, type);
   }
-  tree _create_artificial_label(location_t loc) {
-    return create_artificial_label(loc);
-  }
+
   void _gimplify_function_tree(tree t) {
     return gimplify_function_tree(t);
   }
 
   tree build_int_constant(tree int_type, int64_t value) {
     return build_int_cst_type(int_type, value);
+  }
+
+  tree build_label_decl(location_t loc, tree context) {
+    tree decl = build_decl(loc, LABEL_DECL, NULL_TREE, void_type_node);
+    DECL_ARTIFICIAL(decl) = 1;
+    DECL_IGNORED_P(decl) = 1;
+    DECL_CONTEXT(decl) = context;
+    SET_DECL_MODE(decl, VOIDmode);
+    return decl;
   }
 
   void make_decl_chain(
