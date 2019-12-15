@@ -541,6 +541,23 @@ impl Tree {
             )
         }
     }
+
+    pub fn new_case_label_expr(value: Option<Tree>, label_decl: Tree) -> Self {
+        unsafe {
+            _build4(
+                TreeCode::CaseLabelExpr,
+                TreeIndex::VoidType.into(),
+                value.unwrap_or(NULL_TREE),
+                NULL_TREE,
+                label_decl,
+                NULL_TREE,
+            )
+        }
+    }
+
+    pub fn new_switch_expr(switch_ty: Tree, discr: Tree, body: Tree) -> Self {
+        unsafe { _build2(TreeCode::SwitchExpr, switch_ty, discr, body) }
+    }
 }
 
 extern "C" {

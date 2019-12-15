@@ -257,22 +257,54 @@ impl<'tcx> FunctionConversion<'tcx> {
                 values,
                 targets,
             } => {
-                if switch_ty.kind != TyKind::Bool {
-                    unimplemented!("switch/if with non-boolean type");
-                }
-
-                assert_eq!(values.len(), 1);
+                assert!(values.len() >= 1);
                 assert_eq!(targets.len(), values.len() + 1);
-                let true_idx = if values[0] != 0 { 0 } else { 1 };
-                let false_idx = 1 - true_idx;
 
-                let true_expr = self.convert_goto(targets[true_idx]);
-                let false_expr = self.convert_goto(targets[false_idx]);
+                let switch_ty_tree = convert_type(switch_ty);
 
-                let cond = self.convert_operand(discr);
+                if values.len() == 1 {
+                    let value = values[0];
 
-                self.stmt_list
-                    .push(Tree::new_cond_expr(cond, true_expr, false_expr));
+                    let cond = Tree::new2(
+                        TreeCode::EqExpr,
+                        TreeIndex::BooleanType.into(),
+                        self.convert_operand(discr),
+                        Tree::new_int_constant(switch_ty_tree, value.try_into().unwrap()),
+                    );
+
+                    let if_eq_expr = self.convert_goto(targets[0]);
+                    let else_expr = self.convert_goto(targets[1]);
+                    self.stmt_list
+                        .push(Tree::new_cond_expr(cond, if_eq_expr, else_expr));
+                } else {
+                    let mut cases_list = StatementList::new();
+
+                    for (value, target) in values.into_iter().zip(targets) {
+                        let case_expr = Tree::new_case_label_expr(
+                            Some(Tree::new_int_constant(
+                                switch_ty_tree,
+                                (*value).try_into().unwrap(),
+                            )),
+                            Tree::new_label_decl(UNKNOWN_LOCATION, self.fn_decl.0),
+                        );
+
+                        cases_list.push(case_expr);
+                        cases_list.push(self.convert_goto(*target));
+                    }
+
+                    // default case
+                    cases_list.push(Tree::new_case_label_expr(
+                        None,
+                        Tree::new_label_decl(UNKNOWN_LOCATION, self.fn_decl.0),
+                    ));
+                    cases_list.push(self.convert_goto(*targets.last().unwrap()));
+
+                    self.stmt_list.push(Tree::new_switch_expr(
+                        switch_ty_tree,
+                        self.convert_operand(discr),
+                        cases_list.0,
+                    ));
+                }
             }
 
             Return => {
