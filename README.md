@@ -7,7 +7,7 @@ trivial functions, like:
 fn my_function(x: i32) -> i32 { x }
 ```
 
-But e.g. control flow doesn't work yet.
+But most language features don't work yet.
 
 
 ## How does it work?
