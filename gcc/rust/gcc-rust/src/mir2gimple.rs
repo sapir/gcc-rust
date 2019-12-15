@@ -251,6 +251,12 @@ impl<'tcx> FunctionConversion<'tcx> {
                 self.stmt_list.push(self.convert_goto(*target));
             }
 
+            Assert { msg, target, .. } => {
+                // TODO
+                eprintln!("WARNING: ignoring assert with message: {:?}", msg);
+                self.stmt_list.push(self.convert_goto(*target));
+            }
+
             SwitchInt {
                 discr,
                 switch_ty,
