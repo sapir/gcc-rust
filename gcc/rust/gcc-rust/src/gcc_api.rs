@@ -558,6 +558,12 @@ impl Tree {
     pub fn new_switch_expr(switch_ty: Tree, discr: Tree, body: Tree) -> Self {
         unsafe { _build2(TreeCode::SwitchExpr, switch_ty, discr, body) }
     }
+
+    pub fn new_record_type(mut fields: DeclList) -> Self {
+        let ty = unsafe { build_record_type(fields.head().unwrap_or(NULL_TREE)) };
+        fields.set_context(ty);
+        ty
+    }
 }
 
 extern "C" {
@@ -608,6 +614,7 @@ extern "C" {
     fn build_label_decl(loc: Location, context: Tree) -> Tree;
     fn make_decl_chain(code: TreeCode, num_decls: usize, types: *const Tree, decls: *mut Tree);
     fn set_decl_chain_context(chain_head: Tree, context: Tree);
+    fn build_record_type(fields_chain_head: Tree) -> Tree;
     fn set_fn_result(fn_decl: Tree, result: Tree);
     fn set_fn_initial(fn_decl: Tree, tree: Tree);
     fn set_fn_saved_tree(fn_decl: Tree, tree: Tree);

@@ -17,7 +17,6 @@ fn convert_type(ty: Ty) -> Tree {
     use TyKind::*;
 
     match ty.kind {
-        Tuple(substs) if substs.is_empty() => TreeIndex::VoidType.into(),
         Bool => TreeIndex::BooleanType.into(),
         // TODO: are these correct?
         Int(IntTy::Isize) => IntegerTypeKind::Long.into(),
@@ -30,6 +29,23 @@ fn convert_type(ty: Ty) -> Tree {
         Uint(UintTy::U16) => IntegerTypeKind::UnsignedShort.into(),
         Uint(UintTy::U32) => IntegerTypeKind::UnsignedInt.into(),
         Uint(UintTy::U64) => IntegerTypeKind::UnsignedLongLong.into(),
+
+        Tuple(substs) => {
+            if substs.is_empty() {
+                TreeIndex::VoidType.into()
+            } else {
+                let fields = DeclList::new(
+                    TreeCode::FieldDecl,
+                    &substs
+                        .types()
+                        .map(|field_ty| convert_type(tcx, field_ty))
+                        .collect::<Vec<_>>(),
+                );
+
+                Tree::new_record_type(fields)
+            }
+        }
+
         _ => unimplemented!("type: {:?}", ty),
     }
 }

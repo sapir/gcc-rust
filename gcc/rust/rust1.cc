@@ -205,6 +205,14 @@ extern "C" {
     }
   }
 
+  tree build_record_type(tree fields_chain_head) {
+    tree type = build0(RECORD_TYPE, NULL_TREE);
+    TYPE_FIELDS(type) = fields_chain_head;
+    // TODO: use the same layout as rustc
+    layout_type(type);
+    return type;
+  }
+
   void set_fn_result(tree fn_decl, tree result) {
     DECL_RESULT(fn_decl) = result;
   }
