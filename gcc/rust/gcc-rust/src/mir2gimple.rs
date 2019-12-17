@@ -9,66 +9,95 @@ use rustc::{
     ty::{ConstKind, Ty, TyCtxt, TyKind},
 };
 use rustc_interface::Queries;
-use std::{convert::TryInto, ffi::CString};
+use std::{collections::HashMap, convert::TryInto, ffi::CString};
 use syntax::ast::{IntTy, UintTy};
 use syntax_pos::symbol::Symbol;
 
-fn convert_type(ty: Ty) -> Tree {
-    use TyKind::*;
+/// Cache the types so if we convert the same anonymous type twice, we get the exact same
+/// Tree object. Otherwise, we get errors about anonymous structs not being the same, even
+/// though they have the same fields.
+struct TypeCache<'tcx> {
+    tcx: TyCtxt<'tcx>,
+    hashmap: HashMap<Ty<'tcx>, Tree>,
+}
 
-    match ty.kind {
-        Bool => TreeIndex::BooleanType.into(),
-        // TODO: are these correct?
-        Int(IntTy::Isize) => IntegerTypeKind::Long.into(),
-        Int(IntTy::I8) => IntegerTypeKind::SignedChar.into(),
-        Int(IntTy::I16) => IntegerTypeKind::Short.into(),
-        Int(IntTy::I32) => IntegerTypeKind::Int.into(),
-        Int(IntTy::I64) => IntegerTypeKind::LongLong.into(),
-        Uint(UintTy::Usize) => IntegerTypeKind::UnsignedLong.into(),
-        Uint(UintTy::U8) => IntegerTypeKind::UnsignedChar.into(),
-        Uint(UintTy::U16) => IntegerTypeKind::UnsignedShort.into(),
-        Uint(UintTy::U32) => IntegerTypeKind::UnsignedInt.into(),
-        Uint(UintTy::U64) => IntegerTypeKind::UnsignedLongLong.into(),
+impl<'tcx> TypeCache<'tcx> {
+    fn new(tcx: TyCtxt<'tcx>) -> Self {
+        Self {
+            tcx,
+            hashmap: HashMap::new(),
+        }
+    }
 
-        Tuple(substs) => {
-            if substs.is_empty() {
-                TreeIndex::VoidType.into()
-            } else {
-                let fields = DeclList::new(
-                    TreeCode::FieldDecl,
-                    &substs
-                        .types()
-                        .map(|field_ty| convert_type(tcx, field_ty))
-                        .collect::<Vec<_>>(),
-                );
+    fn do_convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
+        use TyKind::*;
 
-                Tree::new_record_type(fields)
+        match ty.kind {
+            Bool => TreeIndex::BooleanType.into(),
+            // TODO: are these correct?
+            Int(IntTy::Isize) => IntegerTypeKind::Long.into(),
+            Int(IntTy::I8) => IntegerTypeKind::SignedChar.into(),
+            Int(IntTy::I16) => IntegerTypeKind::Short.into(),
+            Int(IntTy::I32) => IntegerTypeKind::Int.into(),
+            Int(IntTy::I64) => IntegerTypeKind::LongLong.into(),
+            Uint(UintTy::Usize) => IntegerTypeKind::UnsignedLong.into(),
+            Uint(UintTy::U8) => IntegerTypeKind::UnsignedChar.into(),
+            Uint(UintTy::U16) => IntegerTypeKind::UnsignedShort.into(),
+            Uint(UintTy::U32) => IntegerTypeKind::UnsignedInt.into(),
+            Uint(UintTy::U64) => IntegerTypeKind::UnsignedLongLong.into(),
+
+            Tuple(substs) => {
+                if substs.is_empty() {
+                    TreeIndex::VoidType.into()
+                } else {
+                    let fields = DeclList::new(
+                        TreeCode::FieldDecl,
+                        &substs
+                            .types()
+                            .map(|field_ty| self.convert_type(field_ty))
+                            .collect::<Vec<_>>(),
+                    );
+
+                    Tree::new_record_type(fields)
+                }
             }
+
+            _ => unimplemented!("type: {:?}", ty),
+        }
+    }
+
+    fn convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
+        if let Some(tree) = self.hashmap.get(ty) {
+            return *tree;
         }
 
-        _ => unimplemented!("type: {:?}", ty),
+        // TODO: return a placeholder when called recursively!
+        // do_convert_type can recursively call convert_type
+        let tree = self.do_convert_type(ty);
+        *self.hashmap.entry(ty).or_insert(tree)
     }
-}
 
-fn make_function_return_type(body: &Body) -> Tree {
-    convert_type(body.return_ty())
-}
+    fn make_function_return_type(&mut self, body: &Body<'tcx>) -> Tree {
+        self.convert_type(body.return_ty())
+    }
 
-fn convert_decls<I>(body: &Body, iter: I) -> Vec<Tree>
-where
-    I: Iterator<Item = Local>,
-{
-    iter.map(|local| convert_type(body.local_decls[local].ty))
-        .collect()
-}
+    fn convert_decls<I>(&mut self, body: &Body<'tcx>, iter: I) -> Vec<Tree>
+    where
+        I: Iterator<Item = Local>,
+    {
+        iter.map(|local| self.convert_type(body.local_decls[local].ty))
+            .collect()
+    }
 
-fn make_function_arg_types(body: &Body) -> Vec<Tree> {
-    convert_decls(body, body.args_iter())
+    fn make_function_arg_types(&mut self, body: &Body<'tcx>) -> Vec<Tree> {
+        self.convert_decls(body, body.args_iter())
+    }
 }
 
 struct FunctionConversion<'tcx> {
     tcx: TyCtxt<'tcx>,
     body: &'tcx Body<'tcx>,
+    type_cache: TypeCache<'tcx>,
     fn_decl: Function,
     return_type_is_void: bool,
     res_decl: Tree,
@@ -81,14 +110,16 @@ struct FunctionConversion<'tcx> {
 
 impl<'tcx> FunctionConversion<'tcx> {
     fn new(tcx: TyCtxt<'tcx>, name: Symbol, body: &'tcx Body<'tcx>) -> Self {
+        let mut type_cache = TypeCache::new(tcx);
+
         let return_type_is_void = if let TyKind::Tuple(substs) = &body.return_ty().kind {
             substs.is_empty()
         } else {
             false
         };
 
-        let return_type = make_function_return_type(body);
-        let arg_types = make_function_arg_types(body);
+        let return_type = type_cache.make_function_return_type(body);
+        let arg_types = type_cache.make_function_arg_types(body);
         let fn_type = Tree::new_function_type(return_type, &arg_types);
 
         let name = CString::new(&*name.as_str()).unwrap();
@@ -105,7 +136,7 @@ impl<'tcx> FunctionConversion<'tcx> {
         let parm_decls = DeclList::new(TreeCode::ParmDecl, &arg_types);
         fn_decl.attach_parm_decls(&parm_decls);
 
-        let var_types = convert_decls(body, body.vars_and_temps_iter());
+        let var_types = type_cache.convert_decls(body, body.vars_and_temps_iter());
         let vars = DeclList::new(TreeCode::VarDecl, &var_types);
         assert_eq!(1 + arg_types.len() + vars.len(), body.local_decls.len());
 
@@ -120,6 +151,7 @@ impl<'tcx> FunctionConversion<'tcx> {
         Self {
             tcx,
             body,
+            type_cache,
             fn_decl,
             return_type_is_void,
             res_decl,
@@ -152,7 +184,7 @@ impl<'tcx> FunctionConversion<'tcx> {
         }
     }
 
-    fn convert_operand(&self, operand: &Operand) -> Tree {
+    fn convert_operand(&mut self, operand: &Operand<'tcx>) -> Tree {
         use ConstKind::*;
         use Operand::*;
         use TyKind::*;
@@ -167,7 +199,7 @@ impl<'tcx> FunctionConversion<'tcx> {
                 match &lit.val {
                     Value(ConstValue::Scalar(Scalar::Raw { data, size: _ })) => match lit.ty.kind {
                         Int(_) | Uint(_) => Tree::new_int_constant(
-                            convert_type(lit.ty),
+                            self.type_cache.convert_type(lit.ty),
                             (*data).try_into().unwrap(),
                         ),
                         _ => unimplemented!("const {:?} {:?}", lit.ty, lit.val),
@@ -179,7 +211,7 @@ impl<'tcx> FunctionConversion<'tcx> {
         }
     }
 
-    fn convert_rvalue(&self, rv: &Rvalue<'tcx>) -> Tree {
+    fn convert_rvalue(&mut self, rv: &Rvalue<'tcx>) -> Tree {
         use Rvalue::*;
 
         match rv {
@@ -217,7 +249,8 @@ impl<'tcx> FunctionConversion<'tcx> {
                 let type_ = if is_boolean {
                     TreeIndex::BooleanType.into()
                 } else {
-                    convert_type(operand1.ty(&self.body.local_decls, self.tcx))
+                    self.type_cache
+                        .convert_type(operand1.ty(&self.body.local_decls, self.tcx))
                 };
 
                 let operand1 = self.convert_operand(operand1);
@@ -282,7 +315,7 @@ impl<'tcx> FunctionConversion<'tcx> {
                 assert!(values.len() >= 1);
                 assert_eq!(targets.len(), values.len() + 1);
 
-                let switch_ty_tree = convert_type(switch_ty);
+                let switch_ty_tree = self.type_cache.convert_type(switch_ty);
 
                 if values.len() == 1 {
                     let value = values[0];
@@ -321,11 +354,9 @@ impl<'tcx> FunctionConversion<'tcx> {
                     ));
                     cases_list.push(self.convert_goto(*targets.last().unwrap()));
 
-                    self.stmt_list.push(Tree::new_switch_expr(
-                        switch_ty_tree,
-                        self.convert_operand(discr),
-                        cases_list.0,
-                    ));
+                    let discr = self.convert_operand(discr);
+                    self.stmt_list
+                        .push(Tree::new_switch_expr(switch_ty_tree, discr, cases_list.0));
                 }
             }
 
