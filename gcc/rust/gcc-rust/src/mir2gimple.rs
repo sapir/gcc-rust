@@ -220,42 +220,34 @@ impl<'tcx> FunctionConversion<'tcx> {
             BinaryOp(op, operand1, operand2) => {
                 use TreeCode::*;
 
-                let (code, is_boolean) = match op {
-                    BinOp::Add => (PlusExpr, false),
-                    BinOp::Sub => (MinusExpr, false),
-                    BinOp::Mul => (MultExpr, false),
+                let code = match op {
+                    BinOp::Add => PlusExpr,
+                    BinOp::Sub => MinusExpr,
+                    BinOp::Mul => MultExpr,
                     // TODO: non-integer division
                     // TODO: verify truncating type is correct
-                    BinOp::Div => (TruncDivExpr, false),
+                    BinOp::Div => TruncDivExpr,
                     // TODO: non-integer division
                     // TODO: verify truncating type is correct
-                    BinOp::Rem => (TruncModExpr, false),
-                    BinOp::BitXor => (BitXorExpr, false),
-                    BinOp::BitAnd => (BitAndExpr, false),
-                    BinOp::BitOr => (BitIorExpr, false),
-                    BinOp::Shl => (LShiftExpr, false),
-                    BinOp::Shr => (RShiftExpr, false),
-                    BinOp::Eq => (EqExpr, true),
-                    BinOp::Lt => (LtExpr, true),
-                    BinOp::Le => (LeExpr, true),
-                    BinOp::Ne => (NeExpr, true),
-                    BinOp::Gt => (GtExpr, true),
-                    BinOp::Ge => (GeExpr, true),
+                    BinOp::Rem => TruncModExpr,
+                    BinOp::BitXor => BitXorExpr,
+                    BinOp::BitAnd => BitAndExpr,
+                    BinOp::BitOr => BitIorExpr,
+                    BinOp::Shl => LShiftExpr,
+                    BinOp::Shr => RShiftExpr,
+                    BinOp::Eq => EqExpr,
+                    BinOp::Lt => LtExpr,
+                    BinOp::Le => LeExpr,
+                    BinOp::Ne => NeExpr,
+                    BinOp::Gt => GtExpr,
+                    BinOp::Ge => GeExpr,
                     // TODO: offset
                     _ => unimplemented!("binop {:?}", op),
                 };
 
-                // TODO: this isn't really always the correct type
-                let type_ = if is_boolean {
-                    TreeIndex::BooleanType.into()
-                } else {
-                    self.type_cache
-                        .convert_type(operand1.ty(&self.body.local_decls, self.tcx))
-                };
-
+                let type_ = self.type_cache.convert_type(rv.ty(self.body, self.tcx));
                 let operand1 = self.convert_operand(operand1);
                 let operand2 = self.convert_operand(operand2);
-
                 Tree::new2(code, type_, operand1, operand2)
             }
 
