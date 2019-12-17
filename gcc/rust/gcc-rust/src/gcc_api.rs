@@ -573,6 +573,22 @@ impl Tree {
         unsafe { get_record_type_field_decl(*self, index) }
     }
 
+    pub fn new_constructor(record_type: Tree, field_decls: &[Tree], field_values: &[Tree]) -> Self {
+        assert_eq!(field_decls.len(), field_values.len());
+        unsafe {
+            build_constructor_from_array(
+                record_type,
+                field_decls.len(),
+                field_decls.as_ptr(),
+                field_values.as_ptr(),
+            )
+        }
+    }
+
+    pub fn new_compound_literal_expr(type_: Tree, value: Tree, context: Tree) -> Self {
+        unsafe { build_compound_literal_expr(type_, value, context) }
+    }
+
     pub fn new_component_ref(type_: Tree, base_expr: Tree, field_decl: Tree) -> Self {
         Self::new3(
             TreeCode::ComponentRef,
@@ -627,6 +643,12 @@ extern "C" {
     ) -> Tree;
     fn _build_fn_decl(name: *const c_char, decltype: Tree) -> Tree;
     fn _gimplify_function_tree(tree: Tree);
+    fn build_constructor_from_array(
+        type_: Tree,
+        num_fields: usize,
+        field_decls: *const Tree,
+        field_values: *const Tree,
+    ) -> Tree;
 
     fn build_int_constant(inttype: Tree, value: i64) -> Tree;
     fn build_label_decl(loc: Location, context: Tree) -> Tree;
@@ -634,6 +656,7 @@ extern "C" {
     fn set_decl_chain_context(chain_head: Tree, context: Tree);
     fn build_record_type(fields_chain_head: Tree) -> Tree;
     fn get_record_type_field_decl(record_type: Tree, index: usize) -> Tree;
+    fn build_compound_literal_expr(type_: Tree, value: Tree, context: Tree) -> Tree;
     fn set_fn_result(fn_decl: Tree, result: Tree);
     fn set_fn_initial(fn_decl: Tree, tree: Tree);
     fn set_fn_saved_tree(fn_decl: Tree, tree: Tree);

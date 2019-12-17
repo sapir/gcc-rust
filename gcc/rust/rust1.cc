@@ -160,6 +160,24 @@ extern "C" {
     return gimplify_function_tree(t);
   }
 
+  tree build_constructor_from_array(
+      tree type,
+      size_t num_fields,
+      const tree *field_decls,
+      const tree *field_values
+  ) {
+    vec<constructor_elt, va_gc> *v = NULL;
+
+    if (num_fields > 0) {
+      vec_alloc(v, num_fields);
+      for (size_t i = 0; i < num_fields; ++i) {
+	CONSTRUCTOR_APPEND_ELT(v, field_decls[i], field_values[i]);
+      }
+    }
+
+    return build_constructor(type, v);
+  }
+
   tree build_int_constant(tree int_type, int64_t value) {
     return build_int_cst_type(int_type, value);
   }
@@ -220,6 +238,23 @@ extern "C" {
       cur = DECL_CHAIN(cur);
     }
     return cur;
+  }
+
+  // based on build_compound_literal in c_decl.c
+  tree build_compound_literal_expr(tree type, tree value, tree context) {
+    tree decl = build_decl(UNKNOWN_LOCATION, VAR_DECL, NULL_TREE, type);
+    DECL_EXTERNAL(decl) = 0;
+    TREE_PUBLIC(decl) = 0;
+    TREE_STATIC(decl) = false;
+    DECL_CONTEXT(decl) = context;
+    TREE_USED(decl) = 1;
+    DECL_READ_P(decl) = 1;
+    DECL_ARTIFICIAL(decl) = 1;
+    DECL_IGNORED_P(decl) = 1;
+    TREE_TYPE(decl) = type;
+    DECL_INITIAL(decl) = value;
+    tree decl_expr = build1(DECL_EXPR, type, decl);
+    return build1(COMPOUND_LITERAL_EXPR, type, decl_expr);
   }
 
   void set_fn_result(tree fn_decl, tree result) {

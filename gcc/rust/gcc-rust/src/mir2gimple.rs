@@ -275,6 +275,23 @@ impl<'tcx> FunctionConversion<'tcx> {
                 Tree::new2(code, type_, operand1, operand2)
             }
 
+            CheckedBinaryOp(op, operand1, operand2) => {
+                let type_ = self.type_cache.convert_type(rv.ty(self.body, self.tcx));
+                let unchecked_value =
+                    self.convert_rvalue(&BinaryOp(*op, operand1.clone(), operand2.clone()));
+                // TODO: perform the check
+                let check_value = TreeIndex::BooleanTrue.into();
+                let constructor = Tree::new_constructor(
+                    type_,
+                    &[
+                        type_.get_record_type_field_decl(0),
+                        type_.get_record_type_field_decl(1),
+                    ],
+                    &[unchecked_value, check_value],
+                );
+                Tree::new_compound_literal_expr(type_, constructor, self.fn_decl.0)
+            }
+
             _ => unimplemented!("rvalue {:?}", rv),
         }
     }
