@@ -3,8 +3,8 @@ use rustc::{
     hir::def_id::LOCAL_CRATE,
     mir::{
         interpret::{ConstValue, Scalar},
-        BasicBlock, BasicBlockData, BinOp, Body, Local, Operand, Place, PlaceBase, Rvalue,
-        StatementKind, TerminatorKind,
+        BasicBlock, BasicBlockData, BinOp, Body, Local, Operand, Place, PlaceBase, ProjectionElem,
+        Rvalue, StatementKind, TerminatorKind,
     },
     ty::{ConstKind, Ty, TyCtxt, TyKind},
 };
@@ -163,12 +163,8 @@ impl<'tcx> FunctionConversion<'tcx> {
         }
     }
 
-    fn get_place(&self, place: &Place) -> Tree {
-        if !place.projection.is_empty() {
-            unimplemented!("non-empty projection");
-        }
-
-        match &place.base {
+    fn get_place(&mut self, place: &Place<'tcx>) -> Tree {
+        let base = match &place.base {
             PlaceBase::Local(local) => {
                 let n = local.as_usize();
                 if n == 0 {
@@ -181,7 +177,35 @@ impl<'tcx> FunctionConversion<'tcx> {
             }
 
             _ => unimplemented!("base {:?}", place),
+        };
+
+        // Now apply any projections
+
+        let mut component = base;
+        let mut component_type = place.base.ty(self.body);
+
+        for elem in place.projection {
+            use ProjectionElem::*;
+
+            match elem {
+                Field(field_index, field_ty) => {
+                    // TODO: this is broken for enums, maybe also structs
+                    let record_type = self.type_cache.convert_type(component_type.ty);
+                    let field_decl = record_type.get_record_type_field_decl(field_index.as_usize());
+                    component = Tree::new_component_ref(
+                        self.type_cache.convert_type(field_ty),
+                        component,
+                        field_decl,
+                    );
+                }
+
+                _ => unimplemented!("projection {:?}", elem),
+            }
+
+            component_type = component_type.projection_ty(self.tcx, elem);
         }
+
+        component
     }
 
     fn convert_operand(&mut self, operand: &Operand<'tcx>) -> Tree {

@@ -478,6 +478,10 @@ impl Tree {
         unsafe { _build2(code, type_, arg0, arg1) }
     }
 
+    fn new3(code: TreeCode, type_: Tree, arg0: Tree, arg1: Tree, arg2: Tree) -> Self {
+        unsafe { _build3(code, type_, arg0, arg1, arg2) }
+    }
+
     pub fn new_init_expr(var: Tree, value: Tree) -> Self {
         Self::new2(TreeCode::InitExpr, TreeIndex::VoidType.into(), var, value)
     }
@@ -564,6 +568,20 @@ impl Tree {
         fields.set_context(ty);
         ty
     }
+
+    pub fn get_record_type_field_decl(&self, index: usize) -> Self {
+        unsafe { get_record_type_field_decl(*self, index) }
+    }
+
+    pub fn new_component_ref(type_: Tree, base_expr: Tree, field_decl: Tree) -> Self {
+        Self::new3(
+            TreeCode::ComponentRef,
+            type_,
+            base_expr,
+            field_decl,
+            NULL_TREE,
+        )
+    }
 }
 
 extern "C" {
@@ -615,6 +633,7 @@ extern "C" {
     fn make_decl_chain(code: TreeCode, num_decls: usize, types: *const Tree, decls: *mut Tree);
     fn set_decl_chain_context(chain_head: Tree, context: Tree);
     fn build_record_type(fields_chain_head: Tree) -> Tree;
+    fn get_record_type_field_decl(record_type: Tree, index: usize) -> Tree;
     fn set_fn_result(fn_decl: Tree, result: Tree);
     fn set_fn_initial(fn_decl: Tree, tree: Tree);
     fn set_fn_saved_tree(fn_decl: Tree, tree: Tree);

@@ -213,6 +213,15 @@ extern "C" {
     return type;
   }
 
+  // TODO: store these in a rust vec? then no need for a loop here
+  tree get_record_type_field_decl(tree record_type, size_t index) {
+    tree cur = TYPE_FIELDS(record_type);
+    for (size_t i = 0; cur != NULL_TREE && i < index; ++i) {
+      cur = DECL_CHAIN(cur);
+    }
+    return cur;
+  }
+
   void set_fn_result(tree fn_decl, tree result) {
     DECL_RESULT(fn_decl) = result;
   }
