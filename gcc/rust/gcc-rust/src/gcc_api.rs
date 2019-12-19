@@ -697,7 +697,7 @@ impl DeclList {
     }
 
     pub fn head(&self) -> Option<Tree> {
-        self.0.get(0).copied()
+        self.0.first().copied()
     }
 
     pub fn set_context(&mut self, context: Tree) {

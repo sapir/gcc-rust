@@ -436,7 +436,7 @@ impl<'tcx> FunctionConversion<'tcx> {
     }
 
     fn finalize(mut self) {
-        let vars_chain_head = self.vars.get(0).map(|t| *t).unwrap_or(NULL_TREE);
+        let vars_chain_head = self.vars.head().unwrap_or(NULL_TREE);
         let bind_expr = Tree::new_bind_expr(vars_chain_head, self.stmt_list.0, self.main_gcc_block);
         self.fn_decl.set_saved_tree(bind_expr);
 
