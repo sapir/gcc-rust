@@ -447,8 +447,8 @@ pub struct TreeNode {
     _private: [u8; 0],
 }
 
-#[derive(Clone, Copy)]
 #[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
 pub struct Tree(*mut TreeNode);
 
 pub const NULL_TREE: Tree = Tree(null_mut());
@@ -667,6 +667,7 @@ extern "C" {
     fn finalize_function(tree: Tree, no_collect: bool);
 }
 
+#[derive(Debug)]
 pub struct StatementList(pub Tree);
 
 impl StatementList {
@@ -681,6 +682,7 @@ impl StatementList {
     }
 }
 
+#[derive(Debug)]
 pub struct DeclList(Vec<Tree>);
 
 impl DeclList {
@@ -715,8 +717,8 @@ impl std::ops::Deref for DeclList {
     }
 }
 
-#[derive(Clone, Copy)]
 #[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
 pub struct Function(pub Tree);
 
 impl Function {
