@@ -6,7 +6,7 @@ use rustc::{
         BasicBlock, BasicBlockData, BinOp, Body, Local, Operand, Place, PlaceBase, ProjectionElem,
         Rvalue, StatementKind, TerminatorKind,
     },
-    ty::{ConstKind, Ty, TyCtxt, TyKind},
+    ty::{AdtKind, ConstKind, Ty, TyCtxt, TyKind},
 };
 use rustc_interface::Queries;
 use std::{collections::HashMap, convert::TryInto, ffi::CString};
@@ -58,7 +58,35 @@ impl<'tcx> TypeCache<'tcx> {
                             .collect::<Vec<_>>(),
                     );
 
-                    Tree::new_record_type(fields)
+                    Tree::new_record_type(TreeCode::RecordType, fields)
+                }
+            }
+
+            Adt(adt_def, substs) => {
+                match adt_def.adt_kind() {
+                    AdtKind::Struct | AdtKind::Union => {
+                        let variant = adt_def.non_enum_variant();
+
+                        // TODO: field names
+                        let fields = DeclList::new(
+                            TreeCode::FieldDecl,
+                            &variant
+                                .fields
+                                .iter()
+                                .map(|field| self.convert_type(field.ty(self.tcx, substs)))
+                                .collect::<Vec<_>>(),
+                        );
+
+                        let code = match adt_def.adt_kind() {
+                            AdtKind::Struct => TreeCode::RecordType,
+                            AdtKind::Union => TreeCode::UnionType,
+                            _ => unreachable!(),
+                        };
+
+                        Tree::new_record_type(code, fields)
+                    }
+
+                    _ => unimplemented!("adt type: {:?}", ty),
                 }
             }
 
