@@ -2012,6 +2012,10 @@ impl Tree {
         unsafe { get_tree_type(self) }
     }
 
+    pub fn get_code(self) -> TreeCode {
+        unsafe { get_tree_code(self) }
+    }
+
     pub fn new_function_type(return_type: Tree, arg_types: &[Tree]) -> Self {
         unsafe { _build_function_type_array(return_type, arg_types.len(), arg_types.as_ptr()) }
     }
@@ -2145,6 +2149,16 @@ impl Tree {
         )
     }
 
+    pub fn new_indirect_ref(base_expr: Tree) -> Self {
+        let pointer_ty = base_expr.get_type();
+        assert_eq!(pointer_ty.get_code(), TreeCode::PointerType);
+
+        // Type of dereffed item is stored in POINTER_TYPE's TREE_TYPE
+        let deref_ty = pointer_ty.get_type();
+
+        Self::new1(TreeCode::IndirectRef, deref_ty, base_expr)
+    }
+
     pub fn new_call_expr(loc: Location, return_type: Tree, fn_ptr: Tree, args: &[Tree]) -> Self {
         unsafe { _build_call_array_loc(loc, return_type, fn_ptr, args.len(), args.as_ptr()) }
     }
@@ -2216,6 +2230,7 @@ extern "C" {
     ) -> Tree;
 
     fn get_tree_type(tree: Tree) -> Tree;
+    fn get_tree_code(tree: Tree) -> TreeCode;
     fn build_int_constant(inttype: Tree, value: i64) -> Tree;
     fn build_label_decl(loc: Location, context: Tree) -> Tree;
     fn make_decl_chain(code: TreeCode, num_decls: usize, types: *const Tree, decls: *mut Tree);

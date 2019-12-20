@@ -168,6 +168,10 @@ extern "C" {
     return TREE_TYPE(t);
   }
 
+  enum tree_code get_tree_code(tree t) {
+    return TREE_CODE(t);
+  }
+
   tree build_constructor_from_array(
       tree type,
       size_t num_fields,

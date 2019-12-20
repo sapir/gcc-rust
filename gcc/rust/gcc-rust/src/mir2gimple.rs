@@ -151,6 +151,11 @@ impl<'tcx> TypeCache<'tcx> {
                 Tree::new_function_type(return_type, &arg_types)
             }
 
+            Ref(_region, ty, _mutbl) => {
+                // TODO: mutability
+                Tree::new_pointer_type(self.convert_type(ty))
+            }
+
             _ => unimplemented!("type: {:?} ({:?})", ty, ty.kind),
         }
     }
@@ -331,6 +336,10 @@ impl<'tcx> FunctionConversion<'tcx> {
                     component = Tree::new_component_ref(variants_ref, variant_struct_field_decl);
                 }
 
+                Deref => {
+                    component = Tree::new_indirect_ref(component);
+                }
+
                 _ => unimplemented!("projection {:?}", elem),
             }
         }
@@ -464,6 +473,8 @@ impl<'tcx> FunctionConversion<'tcx> {
             }
 
             Discriminant(place) => self.get_discriminant_ref(place),
+
+            Ref(_region, _borrow_kind, place) => Tree::new_addr_expr(self.get_place(place)),
 
             _ => unimplemented!("rvalue {:?}", rv),
         }
