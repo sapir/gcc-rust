@@ -4,7 +4,7 @@ use rustc::{
     mir::{
         interpret::{ConstValue, Scalar},
         BasicBlock, BasicBlockData, BinOp, Body, Local, Operand, Place, PlaceBase, ProjectionElem,
-        Rvalue, StatementKind, TerminatorKind,
+        Rvalue, StatementKind, TerminatorKind, UnOp,
     },
     ty::{AdtKind, ConstKind, Ty, TyCtxt, TyKind},
 };
@@ -328,6 +328,16 @@ impl<'tcx> FunctionConversion<'tcx> {
                     &[unchecked_value, check_value],
                 );
                 Tree::new_compound_literal_expr(type_, constructor, self.fn_decl.0)
+            }
+
+            UnaryOp(op, operand) => {
+                let operand = self.convert_operand(operand);
+                let type_ = self.type_cache.convert_type(rv.ty(self.body, self.tcx));
+                let code = match op {
+                    UnOp::Neg => TreeCode::NegateExpr,
+                    UnOp::Not => TreeCode::BitNotExpr,
+                };
+                Tree::new1(code, type_, operand)
             }
 
             _ => unimplemented!("rvalue {:?}", rv),

@@ -478,6 +478,10 @@ impl Tree {
         unsafe { _build_function_type_array(return_type, arg_types.len(), arg_types.as_ptr()) }
     }
 
+    pub fn new1(code: TreeCode, type_: Tree, arg0: Tree) -> Self {
+        unsafe { _build1(code, type_, arg0) }
+    }
+
     pub fn new2(code: TreeCode, type_: Tree, arg0: Tree, arg1: Tree) -> Self {
         unsafe { _build2(code, type_, arg0, arg1) }
     }
