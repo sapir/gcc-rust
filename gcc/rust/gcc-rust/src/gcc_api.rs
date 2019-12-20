@@ -606,6 +606,10 @@ impl Tree {
             NULL_TREE,
         )
     }
+
+    pub fn new_pointer_type(to_type: Tree) -> Self {
+        unsafe { _build_pointer_type(to_type) }
+    }
 }
 
 extern "C" {

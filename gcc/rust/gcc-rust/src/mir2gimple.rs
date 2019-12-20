@@ -6,7 +6,7 @@ use rustc::{
         BasicBlock, BasicBlockData, BinOp, Body, Local, Operand, Place, PlaceBase, ProjectionElem,
         Rvalue, StatementKind, TerminatorKind, UnOp,
     },
-    ty::{subst::SubstsRef, AdtKind, ConstKind, Ty, TyCtxt, TyKind, VariantDef},
+    ty::{subst::SubstsRef, AdtKind, ConstKind, Ty, TyCtxt, TyKind, TypeAndMut, VariantDef},
 };
 use rustc_interface::Queries;
 use std::{collections::HashMap, convert::TryInto, ffi::CString};
@@ -131,7 +131,12 @@ impl<'tcx> TypeCache<'tcx> {
                 }
             }
 
-            _ => unimplemented!("type: {:?}", ty),
+            RawPtr(TypeAndMut { ty, mutbl: _ }) => {
+                // TODO: mutability
+                Tree::new_pointer_type(self.convert_type(ty))
+            }
+
+            _ => unimplemented!("type: {:?} ({:?})", ty, ty.kind),
         }
     }
 
