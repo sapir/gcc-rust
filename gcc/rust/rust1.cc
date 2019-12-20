@@ -160,6 +160,10 @@ extern "C" {
     return gimplify_function_tree(t);
   }
 
+  tree _builtin_decl_implicit(enum built_in_function fncode) {
+    return builtin_decl_implicit(fncode);
+  }
+
   tree get_tree_type(tree t) {
     return TREE_TYPE(t);
   }

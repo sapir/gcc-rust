@@ -544,6 +544,15 @@ impl<'tcx> FunctionConversion<'tcx> {
                 self.stmt_list.push(Tree::new_return_expr(return_value));
             }
 
+            Unreachable => {
+                self.stmt_list.push(Tree::new_call_expr(
+                    UNKNOWN_LOCATION,
+                    TreeIndex::VoidType.into(),
+                    Tree::new_addr_expr(BuiltinFunction::Unreachable.into()),
+                    &[],
+                ));
+            }
+
             _ => unimplemented!("{:?}", terminator),
         }
     }
