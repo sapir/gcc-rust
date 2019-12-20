@@ -1,16 +1,18 @@
 use crate::gcc_api::*;
 use rustc::{
-    hir::def_id::LOCAL_CRATE,
     mir::{
         interpret::{ConstValue, Scalar},
+        mono::MonoItem,
         BasicBlock, BasicBlockData, BinOp, Body, Local, Operand, Place, PlaceBase, ProjectionElem,
         Rvalue, StatementKind, TerminatorKind, UnOp,
     },
     ty::{
-        subst::SubstsRef, AdtKind, ConstKind, PolyFnSig, Ty, TyCtxt, TyKind, TypeAndMut, VariantDef,
+        subst::{Subst, SubstsRef},
+        AdtKind, ConstKind, Instance, PolyFnSig, Ty, TyCtxt, TyKind, TypeAndMut, VariantDef,
     },
 };
 use rustc_interface::Queries;
+use rustc_mir::monomorphize::collector::{collect_crate_mono_items, MonoItemCollectionMode};
 use std::{collections::HashMap, convert::TryInto, ffi::CString};
 use syntax::ast::{IntTy, UintTy};
 use syntax_pos::symbol::Symbol;
@@ -219,7 +221,7 @@ impl<'tcx> TypeCache<'tcx> {
 
 struct FunctionConversion<'tcx> {
     tcx: TyCtxt<'tcx>,
-    body: &'tcx Body<'tcx>,
+    body: Body<'tcx>,
     type_cache: TypeCache<'tcx>,
     fn_decl: Function,
     return_type_is_void: bool,
@@ -236,8 +238,15 @@ struct FunctionConversion<'tcx> {
 }
 
 impl<'tcx> FunctionConversion<'tcx> {
-    fn new(tcx: TyCtxt<'tcx>, name: Symbol, body: &'tcx Body<'tcx>) -> Self {
+    fn new(
+        tcx: TyCtxt<'tcx>,
+        name: Symbol,
+        instance: Instance<'tcx>,
+        body: &'tcx Body<'tcx>,
+    ) -> Self {
         let mut type_cache = TypeCache::new(tcx);
+
+        let body = body.subst(tcx, instance.substs);
 
         let return_type_is_void = if let TyKind::Tuple(substs) = &body.return_ty().kind {
             substs.is_empty()
@@ -245,8 +254,8 @@ impl<'tcx> FunctionConversion<'tcx> {
             false
         };
 
-        let return_type = type_cache.make_function_return_type(body);
-        let arg_types = type_cache.make_function_arg_types(body);
+        let return_type = type_cache.make_function_return_type(&body);
+        let arg_types = type_cache.make_function_arg_types(&body);
         let fn_type = Tree::new_function_type(return_type, &arg_types);
 
         let name = CString::new(&*name.as_str()).unwrap();
@@ -264,7 +273,7 @@ impl<'tcx> FunctionConversion<'tcx> {
         fn_decl.attach_parm_decls(&parm_decls);
 
         let vars = {
-            let mut var_types = type_cache.convert_decls(body, body.vars_and_temps_iter());
+            let mut var_types = type_cache.convert_decls(&body, body.vars_and_temps_iter());
             assert_eq!(
                 1 + arg_types.len() + var_types.len(),
                 body.local_decls.len()
@@ -450,14 +459,14 @@ impl<'tcx> FunctionConversion<'tcx> {
                     _ => unimplemented!("binop {:?}", op),
                 };
 
-                let type_ = self.type_cache.convert_type(rv.ty(self.body, self.tcx));
+                let type_ = self.type_cache.convert_type(rv.ty(&self.body, self.tcx));
                 let operand1 = self.convert_operand(operand1);
                 let operand2 = self.convert_operand(operand2);
                 Tree::new2(code, type_, operand1, operand2)
             }
 
             CheckedBinaryOp(op, operand1, operand2) => {
-                let type_ = self.type_cache.convert_type(rv.ty(self.body, self.tcx));
+                let type_ = self.type_cache.convert_type(rv.ty(&self.body, self.tcx));
                 let unchecked_value =
                     self.convert_rvalue(&BinaryOp(*op, operand1.clone(), operand2.clone()));
                 // TODO: perform the check
@@ -475,7 +484,7 @@ impl<'tcx> FunctionConversion<'tcx> {
 
             UnaryOp(op, operand) => {
                 let operand = self.convert_operand(operand);
-                let type_ = self.type_cache.convert_type(rv.ty(self.body, self.tcx));
+                let type_ = self.type_cache.convert_type(rv.ty(&self.body, self.tcx));
                 let code = match op {
                     UnOp::Neg => TreeCode::NegateExpr,
                     UnOp::Not => TreeCode::BitNotExpr,
@@ -697,8 +706,13 @@ impl<'tcx> FunctionConversion<'tcx> {
     }
 }
 
-fn func_mir_to_gcc<'tcx>(tcx: TyCtxt<'tcx>, name: Symbol, func_mir: &'tcx Body) {
-    let mut fn_conv = FunctionConversion::new(tcx, name, func_mir);
+fn func_mir_to_gcc<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    name: Symbol,
+    instance: Instance<'tcx>,
+    func_mir: &'tcx Body,
+) {
+    let mut fn_conv = FunctionConversion::new(tcx, name, instance, func_mir);
 
     println!("name: {}", name);
     for (bb_idx, bb) in func_mir.basic_blocks().iter_enumerated() {
@@ -712,11 +726,20 @@ fn func_mir_to_gcc<'tcx>(tcx: TyCtxt<'tcx>, name: Symbol, func_mir: &'tcx Body) 
 
 pub fn mir2gimple<'tcx>(queries: &'tcx Queries<'tcx>) {
     queries.global_ctxt().unwrap().peek_mut().enter(|tcx| {
-        for &mir_key in tcx.mir_keys(LOCAL_CRATE) {
-            // TODO: symbol_name?
-            let name = tcx.item_name(mir_key);
-            let mir = tcx.optimized_mir(mir_key);
-            func_mir_to_gcc(tcx, name, mir);
+        let (mono_items, _inlining_map) =
+            collect_crate_mono_items(tcx, MonoItemCollectionMode::Eager);
+
+        for item in mono_items {
+            match item {
+                MonoItem::Fn(instance) => {
+                    // TODO: symbol_name?
+                    let name = tcx.item_name(instance.def_id());
+                    let mir = tcx.optimized_mir(instance.def_id());
+                    func_mir_to_gcc(tcx, name, instance, mir);
+                }
+
+                _ => unimplemented!("monoitem {:?}", item),
+            }
         }
     });
 }
