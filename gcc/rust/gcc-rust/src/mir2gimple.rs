@@ -351,8 +351,14 @@ impl<'tcx> FunctionConversion<'tcx> {
 
         for stmt in &block.statements {
             match &stmt.kind {
-                StorageLive(_) | StorageDead(_) => {}
                 Nop => {}
+
+                // These may be useful in the future, but are currently ignored.
+                StorageLive(_) | StorageDead(_) => {}
+
+                // I think these can be ignored safely, although I'm not sure about FakeRead.
+                AscribeUserType(_, _) | Retag(_, _) | FakeRead(_, _) => {}
+
                 Assign(assign) => {
                     let (place, rvalue) = &**assign;
                     eprintln!("{:?} = {:?}", place, rvalue);
