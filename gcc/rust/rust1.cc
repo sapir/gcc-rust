@@ -160,6 +160,10 @@ extern "C" {
     return gimplify_function_tree(t);
   }
 
+  tree get_tree_type(tree t) {
+    return TREE_TYPE(t);
+  }
+
   tree build_constructor_from_array(
       tree type,
       size_t num_fields,

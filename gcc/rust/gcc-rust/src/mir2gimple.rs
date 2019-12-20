@@ -226,27 +226,21 @@ impl<'tcx> FunctionConversion<'tcx> {
         // Now apply any projections
 
         let mut component = base;
-        let mut component_type = place.base.ty(self.body);
 
         for elem in place.projection {
             use ProjectionElem::*;
 
             match elem {
-                Field(field_index, field_ty) => {
+                Field(field_index, _field_ty) => {
                     // TODO: this is broken for enums, maybe also structs
-                    let record_type = self.type_cache.convert_type(component_type.ty);
-                    let field_decl = record_type.get_record_type_field_decl(field_index.as_usize());
-                    component = Tree::new_component_ref(
-                        self.type_cache.convert_type(field_ty),
-                        component,
-                        field_decl,
-                    );
+                    let field_decl = component
+                        .get_type()
+                        .get_record_type_field_decl(field_index.as_usize());
+                    component = Tree::new_component_ref(component, field_decl);
                 }
 
                 _ => unimplemented!("projection {:?}", elem),
             }
-
-            component_type = component_type.projection_ty(self.tcx, elem);
         }
 
         component

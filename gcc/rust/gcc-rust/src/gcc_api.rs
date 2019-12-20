@@ -470,6 +470,10 @@ impl From<IntegerTypeKind> for Tree {
 }
 
 impl Tree {
+    pub fn get_type(self) -> Self {
+        unsafe { get_tree_type(self) }
+    }
+
     pub fn new_function_type(return_type: Tree, arg_types: &[Tree]) -> Self {
         unsafe { _build_function_type_array(return_type, arg_types.len(), arg_types.as_ptr()) }
     }
@@ -589,10 +593,10 @@ impl Tree {
         unsafe { build_compound_literal_expr(type_, value, context) }
     }
 
-    pub fn new_component_ref(type_: Tree, base_expr: Tree, field_decl: Tree) -> Self {
+    pub fn new_component_ref(base_expr: Tree, field_decl: Tree) -> Self {
         Self::new3(
             TreeCode::ComponentRef,
-            type_,
+            field_decl.get_type(),
             base_expr,
             field_decl,
             NULL_TREE,
@@ -650,6 +654,7 @@ extern "C" {
         field_values: *const Tree,
     ) -> Tree;
 
+    fn get_tree_type(tree: Tree) -> Tree;
     fn build_int_constant(inttype: Tree, value: i64) -> Tree;
     fn build_label_decl(loc: Location, context: Tree) -> Tree;
     fn make_decl_chain(code: TreeCode, num_decls: usize, types: *const Tree, decls: *mut Tree);
