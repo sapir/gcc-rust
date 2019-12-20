@@ -6,12 +6,19 @@ use rustc::{
         BasicBlock, BasicBlockData, BinOp, Body, Local, Operand, Place, PlaceBase, ProjectionElem,
         Rvalue, StatementKind, TerminatorKind, UnOp,
     },
-    ty::{subst::SubstsRef, AdtKind, ConstKind, Ty, TyCtxt, TyKind, TypeAndMut, VariantDef},
+    ty::{
+        subst::SubstsRef, AdtKind, ConstKind, PolyFnSig, Ty, TyCtxt, TyKind, TypeAndMut, VariantDef,
+    },
 };
 use rustc_interface::Queries;
 use std::{collections::HashMap, convert::TryInto, ffi::CString};
 use syntax::ast::{IntTy, UintTy};
 use syntax_pos::symbol::Symbol;
+
+struct ConvertedFnSig {
+    pub return_type: Tree,
+    pub arg_types: Vec<Tree>,
+}
 
 /// Cache the types so if we convert the same anonymous type twice, we get the exact same
 /// Tree object. Otherwise, we get errors about anonymous structs not being the same, even
@@ -136,6 +143,14 @@ impl<'tcx> TypeCache<'tcx> {
                 Tree::new_pointer_type(self.convert_type(ty))
             }
 
+            FnDef(..) => {
+                let ConvertedFnSig {
+                    return_type,
+                    arg_types,
+                } = self.convert_fn_sig(ty.fn_sig(self.tcx));
+                Tree::new_function_type(return_type, &arg_types)
+            }
+
             _ => unimplemented!("type: {:?} ({:?})", ty, ty.kind),
         }
     }
@@ -149,6 +164,24 @@ impl<'tcx> TypeCache<'tcx> {
         // do_convert_type can recursively call convert_type
         let tree = self.do_convert_type(ty);
         *self.hashmap.entry(ty).or_insert(tree)
+    }
+
+    fn convert_fn_sig(&mut self, fn_sig: PolyFnSig<'tcx>) -> ConvertedFnSig {
+        // TODO: fn_sig.c_variadic, fn_sig.abi
+        let inputs_and_output = fn_sig.inputs_and_output();
+        let inputs_and_output = self.tcx.erase_late_bound_regions(&inputs_and_output);
+        let (return_type, arg_types) = inputs_and_output.split_last().expect("missing return type");
+
+        let return_type = self.convert_type(return_type);
+        let arg_types = arg_types
+            .into_iter()
+            .map(|arg| self.convert_type(arg))
+            .collect();
+
+        ConvertedFnSig {
+            return_type,
+            arg_types,
+        }
     }
 
     fn make_function_return_type(&mut self, body: &Body<'tcx>) -> Tree {
@@ -323,7 +356,28 @@ impl<'tcx> FunctionConversion<'tcx> {
                             self.type_cache.convert_type(lit.ty),
                             (*data).try_into().unwrap(),
                         ),
-                        _ => unimplemented!("const {:?} {:?}", lit.ty, lit.val),
+
+                        FnDef(def_id, substs) => {
+                            if !substs.is_empty() {
+                                unimplemented!(
+                                    "Constant {:?} containing a reference to a generic function",
+                                    lit
+                                );
+                            }
+
+                            let name = self.tcx.item_name(def_id);
+                            let fn_type = self.type_cache.convert_type(lit.ty);
+                            // TODO: move next line into Function::new
+                            let name = CString::new(&*name.as_str()).unwrap();
+                            Function::new(&name, fn_type).0
+                        }
+
+                        _ => unimplemented!(
+                            "const, ty.kind={:?}, ty={:?}, val={:?}",
+                            lit.ty.kind,
+                            lit.ty,
+                            lit.val
+                        ),
                     },
 
                     _ => unimplemented!("literal {:?} {:?}", lit.ty, lit.val),
@@ -418,6 +472,15 @@ impl<'tcx> FunctionConversion<'tcx> {
     fn convert_goto(&self, target: BasicBlock) -> Tree {
         let target = self.block_labels[target.as_usize()];
         Tree::new_goto(target)
+    }
+
+    fn convert_unreachable(&self) -> Tree {
+        Tree::new_call_expr(
+            UNKNOWN_LOCATION,
+            TreeIndex::VoidType.into(),
+            Tree::new_addr_expr(BuiltinFunction::Unreachable.into()),
+            &[],
+        )
     }
 
     fn convert_basic_block(&mut self, block_index: BasicBlock, block: &BasicBlockData<'tcx>) {
@@ -545,12 +608,57 @@ impl<'tcx> FunctionConversion<'tcx> {
             }
 
             Unreachable => {
-                self.stmt_list.push(Tree::new_call_expr(
+                self.stmt_list.push(self.convert_unreachable());
+            }
+
+            Call {
+                func,
+                args,
+                destination,
+                cleanup: _,
+                from_hir_call: _,
+            } => {
+                let func = self.convert_operand(func);
+                let args = args
+                    .into_iter()
+                    .map(|arg| self.convert_operand(arg))
+                    .collect::<Vec<_>>();
+                // TODO: don't ignore cleanup
+                // TODO: how to use from_hir_call?
+
+                let (call_expr_type, returns_void) = if let Some((place, _)) = destination {
+                    let place_ty = place.ty(&self.body.local_decls, self.tcx);
+                    if place_ty.variant_index.is_some() {
+                        unreachable!("call's return type is an enum variant");
+                    }
+
+                    let call_expr_type = self.type_cache.convert_type(place_ty.ty);
+                    let returns_void = place_ty.ty.is_unit();
+                    (call_expr_type, returns_void)
+                } else {
+                    (TreeIndex::VoidType.into(), true)
+                };
+
+                let call_expr = Tree::new_call_expr(
                     UNKNOWN_LOCATION,
-                    TreeIndex::VoidType.into(),
-                    Tree::new_addr_expr(BuiltinFunction::Unreachable.into()),
-                    &[],
-                ));
+                    call_expr_type,
+                    Tree::new_addr_expr(func),
+                    &args,
+                );
+
+                if let Some((place, destination)) = destination {
+                    if returns_void {
+                        self.stmt_list.push(call_expr);
+                    } else {
+                        let init_expr = Tree::new_init_expr(self.get_place(place), call_expr);
+                        self.stmt_list.push(init_expr);
+                    }
+
+                    self.stmt_list.push(self.convert_goto(*destination));
+                } else {
+                    self.stmt_list.push(call_expr);
+                    self.stmt_list.push(self.convert_unreachable());
+                }
             }
 
             _ => unimplemented!("{:?}", terminator),
