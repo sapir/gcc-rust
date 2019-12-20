@@ -6,7 +6,7 @@ use rustc::{
         BasicBlock, BasicBlockData, BinOp, Body, Local, Operand, Place, PlaceBase, ProjectionElem,
         Rvalue, StatementKind, TerminatorKind, UnOp,
     },
-    ty::{AdtKind, ConstKind, Ty, TyCtxt, TyKind},
+    ty::{subst::SubstsRef, AdtKind, ConstKind, Ty, TyCtxt, TyKind, VariantDef},
 };
 use rustc_interface::Queries;
 use std::{collections::HashMap, convert::TryInto, ffi::CString};
@@ -27,6 +27,25 @@ impl<'tcx> TypeCache<'tcx> {
             tcx,
             hashmap: HashMap::new(),
         }
+    }
+
+    fn convert_variant(
+        &mut self,
+        code: TreeCode,
+        variant: &VariantDef,
+        substs: SubstsRef<'tcx>,
+    ) -> Tree {
+        // TODO: field names
+        let fields = DeclList::new(
+            TreeCode::FieldDecl,
+            &variant
+                .fields
+                .iter()
+                .map(|field| self.convert_type(field.ty(self.tcx, substs)))
+                .collect::<Vec<_>>(),
+        );
+
+        Tree::new_record_type(code, fields)
     }
 
     fn do_convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
@@ -67,26 +86,48 @@ impl<'tcx> TypeCache<'tcx> {
                     AdtKind::Struct | AdtKind::Union => {
                         let variant = adt_def.non_enum_variant();
 
-                        // TODO: field names
-                        let fields = DeclList::new(
-                            TreeCode::FieldDecl,
-                            &variant
-                                .fields
-                                .iter()
-                                .map(|field| self.convert_type(field.ty(self.tcx, substs)))
-                                .collect::<Vec<_>>(),
-                        );
-
                         let code = match adt_def.adt_kind() {
                             AdtKind::Struct => TreeCode::RecordType,
                             AdtKind::Union => TreeCode::UnionType,
                             _ => unreachable!(),
                         };
 
-                        Tree::new_record_type(code, fields)
+                        self.convert_variant(code, variant, substs)
                     }
 
-                    _ => unimplemented!("adt type: {:?}", ty),
+                    AdtKind::Enum => {
+                        // Pretend it looks like
+                        // struct {
+                        //     long discriminant;
+                        //     union {
+                        //         variant1;
+                        //         variant2;
+                        //         ...
+                        //     }
+                        // }
+                        //
+                        // (It seems rustc expects the discriminant to be an isize, which is
+                        // currently converted into a long.)
+
+                        let discr_ty = IntegerTypeKind::Long.into();
+
+                        let variants = adt_def
+                            .variants
+                            .iter()
+                            .map(|variant| {
+                                self.convert_variant(TreeCode::RecordType, variant, substs)
+                            })
+                            .collect::<Vec<_>>();
+                        let variant_union_ty = Tree::new_record_type(
+                            TreeCode::UnionType,
+                            DeclList::new(TreeCode::FieldDecl, &variants),
+                        );
+
+                        Tree::new_record_type(
+                            TreeCode::RecordType,
+                            DeclList::new(TreeCode::FieldDecl, &[discr_ty, variant_union_ty]),
+                        )
+                    }
                 }
             }
 
@@ -232,11 +273,24 @@ impl<'tcx> FunctionConversion<'tcx> {
 
             match elem {
                 Field(field_index, _field_ty) => {
-                    // TODO: this is broken for enums, maybe also structs
                     let field_decl = component
                         .get_type()
                         .get_record_type_field_decl(field_index.as_usize());
                     component = Tree::new_component_ref(component, field_decl);
+                }
+
+                Downcast(_, variant_index) => {
+                    // variants_ref = enum_structs.variants. The union is the 2nd field.
+                    let variants_union_field_decl =
+                        component.get_type().get_record_type_field_decl(1);
+                    let variants_ref =
+                        Tree::new_component_ref(component, variants_union_field_decl);
+
+                    // component = variants_ref.variantN
+                    let variant_struct_field_decl = variants_ref
+                        .get_type()
+                        .get_record_type_field_decl(variant_index.as_usize());
+                    component = Tree::new_component_ref(variants_ref, variant_struct_field_decl);
                 }
 
                 _ => unimplemented!("projection {:?}", elem),
@@ -271,6 +325,16 @@ impl<'tcx> FunctionConversion<'tcx> {
                 }
             }
         }
+    }
+
+    /// Get a component_ref for an enum's discriminant field
+    fn get_discriminant_ref(&mut self, place: &Place<'tcx>) -> Tree {
+        let place = self.get_place(place);
+
+        // enum_struct.discriminant = variant_index.
+        // discriminant is 1st field.
+        let discr_field_decl = place.get_type().get_record_type_field_decl(0);
+        Tree::new_component_ref(place, discr_field_decl)
     }
 
     fn convert_rvalue(&mut self, rv: &Rvalue<'tcx>) -> Tree {
@@ -340,6 +404,8 @@ impl<'tcx> FunctionConversion<'tcx> {
                 Tree::new1(code, type_, operand)
             }
 
+            Discriminant(place) => self.get_discriminant_ref(place),
+
             _ => unimplemented!("rvalue {:?}", rv),
         }
     }
@@ -377,6 +443,22 @@ impl<'tcx> FunctionConversion<'tcx> {
                     let rvalue = self.convert_rvalue(rvalue);
                     self.stmt_list.push(Tree::new_init_expr(place, rvalue));
                 }
+
+                SetDiscriminant {
+                    place,
+                    variant_index,
+                } => {
+                    let discr_ref = self.get_discriminant_ref(place);
+
+                    let variant_index = Tree::new_int_constant(
+                        IntegerTypeKind::Long,
+                        variant_index.as_u32().into(),
+                    );
+
+                    self.stmt_list
+                        .push(Tree::new_init_expr(discr_ref, variant_index));
+                }
+
                 _ => unimplemented!("{:?}", stmt),
             }
         }
