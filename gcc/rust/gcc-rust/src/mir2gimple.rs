@@ -129,6 +129,10 @@ struct FunctionConversion<'tcx> {
     fn_decl: Function,
     return_type_is_void: bool,
     res_decl: Tree,
+    /// If res_decl is a struct, and one of its fields is also a struct, and we try to set it
+    /// directly, we crash gcc. This may be due to the struct being anonymous. Anyway, if we
+    /// do it via a temporary variable, no crash. This is the temporary variable.
+    tmp_var_decl_for_res: Tree,
     parm_decls: DeclList,
     vars: DeclList,
     block_labels: Vec<Tree>,
@@ -164,9 +168,20 @@ impl<'tcx> FunctionConversion<'tcx> {
         let parm_decls = DeclList::new(TreeCode::ParmDecl, &arg_types);
         fn_decl.attach_parm_decls(&parm_decls);
 
-        let var_types = type_cache.convert_decls(body, body.vars_and_temps_iter());
-        let vars = DeclList::new(TreeCode::VarDecl, &var_types);
-        assert_eq!(1 + arg_types.len() + vars.len(), body.local_decls.len());
+        let vars = {
+            let mut var_types = type_cache.convert_decls(body, body.vars_and_temps_iter());
+            assert_eq!(
+                1 + arg_types.len() + var_types.len(),
+                body.local_decls.len()
+            );
+
+            // Add a var decl for tmp_var_decl_for_res
+            var_types.push(return_type);
+
+            DeclList::new(TreeCode::VarDecl, &var_types)
+        };
+
+        let tmp_var_decl_for_res = *vars.last().unwrap();
 
         let block_labels = body
             .basic_blocks()
@@ -183,6 +198,7 @@ impl<'tcx> FunctionConversion<'tcx> {
             fn_decl,
             return_type_is_void,
             res_decl,
+            tmp_var_decl_for_res,
             parm_decls,
             vars,
             block_labels,
@@ -196,7 +212,7 @@ impl<'tcx> FunctionConversion<'tcx> {
             PlaceBase::Local(local) => {
                 let n = local.as_usize();
                 if n == 0 {
-                    self.res_decl
+                    self.tmp_var_decl_for_res
                 } else if n <= self.parm_decls.len() {
                     self.parm_decls[n - 1]
                 } else {
@@ -425,7 +441,7 @@ impl<'tcx> FunctionConversion<'tcx> {
                 let return_value = if self.return_type_is_void {
                     NULL_TREE
                 } else {
-                    self.res_decl
+                    Tree::new_init_expr(self.res_decl, self.tmp_var_decl_for_res)
                 };
 
                 self.stmt_list.push(Tree::new_return_expr(return_value));
