@@ -379,24 +379,15 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
 
             match elem {
                 Field(field_index, _field_ty) => {
-                    let field_decl = component
-                        .get_type()
-                        .get_record_type_field_decl(field_index.as_usize());
-                    component = Tree::new_component_ref(component, field_decl);
+                    component = Tree::new_record_field_ref(component, field_index.as_usize());
                 }
 
                 Downcast(_, variant_index) => {
                     // variants_ref = enum_structs.variants. The union is the 2nd field.
-                    let variants_union_field_decl =
-                        component.get_type().get_record_type_field_decl(1);
-                    let variants_ref =
-                        Tree::new_component_ref(component, variants_union_field_decl);
+                    let variants_ref = Tree::new_record_field_ref(component, 1);
 
                     // component = variants_ref.variantN
-                    let variant_struct_field_decl = variants_ref
-                        .get_type()
-                        .get_record_type_field_decl(variant_index.as_usize());
-                    component = Tree::new_component_ref(variants_ref, variant_struct_field_decl);
+                    component = Tree::new_record_field_ref(variants_ref, variant_index.as_usize());
                 }
 
                 Deref => {
@@ -528,8 +519,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
 
         // enum_struct.discriminant = variant_index.
         // discriminant is 1st field.
-        let discr_field_decl = place.get_type().get_record_type_field_decl(0);
-        Tree::new_component_ref(place, discr_field_decl)
+        Tree::new_record_field_ref(place, 0)
     }
 
     fn convert_rvalue(&mut self, rv: &Rvalue<'tcx>) -> Tree {

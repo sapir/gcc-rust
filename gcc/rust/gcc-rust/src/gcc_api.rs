@@ -2168,6 +2168,11 @@ impl Tree {
         )
     }
 
+    pub fn new_record_field_ref(base_expr: Tree, field_index: usize) -> Self {
+        let field_decl = base_expr.get_type().get_record_type_field_decl(field_index);
+        Self::new_component_ref(base_expr, field_decl)
+    }
+
     pub fn new_indirect_ref(base_expr: Tree) -> Self {
         let pointer_ty = base_expr.get_type();
         assert_eq!(pointer_ty.get_code(), TreeCode::PointerType);
