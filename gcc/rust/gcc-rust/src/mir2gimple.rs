@@ -875,6 +875,10 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
 
         let terminator = block.terminator();
         match &terminator.kind {
+            Drop { .. } | Resume | Abort => {
+                eprintln!("TODO: ignoring {:?}", terminator.kind);
+            }
+
             Goto { target } => {
                 self.stmt_list.push(self.convert_goto(*target));
             }
