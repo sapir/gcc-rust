@@ -219,9 +219,9 @@ impl<'tcx> TypeCache<'tcx> {
     }
 }
 
-struct FunctionConversion<'tcx> {
+struct FunctionConversion<'tcx, 'body> {
     tcx: TyCtxt<'tcx>,
-    body: Body<'tcx>,
+    body: &'body Body<'tcx>,
     type_cache: TypeCache<'tcx>,
     fn_decl: Function,
     return_type_is_void: bool,
@@ -237,16 +237,9 @@ struct FunctionConversion<'tcx> {
     stmt_list: StatementList,
 }
 
-impl<'tcx> FunctionConversion<'tcx> {
-    fn new(
-        tcx: TyCtxt<'tcx>,
-        name: Symbol,
-        instance: Instance<'tcx>,
-        body: &'tcx Body<'tcx>,
-    ) -> Self {
+impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
+    fn new(tcx: TyCtxt<'tcx>, name: Symbol, body: &'body Body<'tcx>) -> Self {
         let mut type_cache = TypeCache::new(tcx);
-
-        let body = body.subst(tcx, instance.substs);
 
         let return_type_is_void = if let TyKind::Tuple(substs) = &body.return_ty().kind {
             substs.is_empty()
@@ -455,14 +448,14 @@ impl<'tcx> FunctionConversion<'tcx> {
                     _ => unimplemented!("binop {:?}", op),
                 };
 
-                let type_ = self.type_cache.convert_type(rv.ty(&self.body, self.tcx));
+                let type_ = self.type_cache.convert_type(rv.ty(self.body, self.tcx));
                 let operand1 = self.convert_operand(operand1);
                 let operand2 = self.convert_operand(operand2);
                 Tree::new2(code, type_, operand1, operand2)
             }
 
             CheckedBinaryOp(op, operand1, operand2) => {
-                let type_ = self.type_cache.convert_type(rv.ty(&self.body, self.tcx));
+                let type_ = self.type_cache.convert_type(rv.ty(self.body, self.tcx));
                 let unchecked_value =
                     self.convert_rvalue(&BinaryOp(*op, operand1.clone(), operand2.clone()));
                 // TODO: perform the check
@@ -480,7 +473,7 @@ impl<'tcx> FunctionConversion<'tcx> {
 
             UnaryOp(op, operand) => {
                 let operand = self.convert_operand(operand);
-                let type_ = self.type_cache.convert_type(rv.ty(&self.body, self.tcx));
+                let type_ = self.type_cache.convert_type(rv.ty(self.body, self.tcx));
                 let code = match op {
                     UnOp::Neg => TreeCode::NegateExpr,
                     UnOp::Not => TreeCode::BitNotExpr,
@@ -706,12 +699,13 @@ fn func_mir_to_gcc<'tcx>(
     tcx: TyCtxt<'tcx>,
     name: Symbol,
     instance: Instance<'tcx>,
-    func_mir: &'tcx Body,
+    body: &'tcx Body,
 ) {
-    let mut fn_conv = FunctionConversion::new(tcx, name, instance, func_mir);
+    let body = body.subst(tcx, instance.substs);
+    let mut fn_conv = FunctionConversion::new(tcx, name, &body);
 
     println!("name: {}", name);
-    for (bb_idx, bb) in func_mir.basic_blocks().iter_enumerated() {
+    for (bb_idx, bb) in body.basic_blocks().iter_enumerated() {
         fn_conv.convert_basic_block(bb_idx, bb);
     }
 
