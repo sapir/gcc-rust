@@ -8,7 +8,8 @@ use rustc::{
     },
     ty::{
         subst::{Subst, SubstsRef},
-        AdtKind, ConstKind, Instance, PolyFnSig, Ty, TyCtxt, TyKind, TypeAndMut, VariantDef,
+        AdtKind, ConstKind, Instance, ParamEnv, PolyFnSig, Ty, TyCtxt, TyKind, TypeAndMut,
+        VariantDef,
     },
 };
 use rustc_interface::Queries;
@@ -27,13 +28,15 @@ struct ConvertedFnSig {
 /// though they have the same fields.
 struct TypeCache<'tcx> {
     tcx: TyCtxt<'tcx>,
+    func_substs: SubstsRef<'tcx>,
     hashmap: HashMap<Ty<'tcx>, Tree>,
 }
 
 impl<'tcx> TypeCache<'tcx> {
-    fn new(tcx: TyCtxt<'tcx>) -> Self {
+    fn new(tcx: TyCtxt<'tcx>, func_substs: SubstsRef<'tcx>) -> Self {
         Self {
             tcx,
+            func_substs,
             hashmap: HashMap::new(),
         }
     }
@@ -169,11 +172,22 @@ impl<'tcx> TypeCache<'tcx> {
                 Tree::new_pointer_type(self.convert_type(ty))
             }
 
+            Projection(_proj_ty) => unreachable!(concat!(
+                "Projection types should have been resolved previously by",
+                " subst_and_normalize_erasing_regions"
+            )),
+
             _ => unimplemented!("type: {:?} ({:?})", ty, ty.kind),
         }
     }
 
     fn convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
+        let ty = self.tcx.subst_and_normalize_erasing_regions(
+            self.func_substs,
+            ParamEnv::reveal_all(),
+            &ty,
+        );
+
         if let Some(tree) = self.hashmap.get(ty) {
             return *tree;
         }
@@ -238,8 +252,13 @@ struct FunctionConversion<'tcx, 'body> {
 }
 
 impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
-    fn new(tcx: TyCtxt<'tcx>, name: Symbol, body: &'body Body<'tcx>) -> Self {
-        let mut type_cache = TypeCache::new(tcx);
+    fn new(
+        tcx: TyCtxt<'tcx>,
+        name: Symbol,
+        instance: Instance<'tcx>,
+        body: &'body Body<'tcx>,
+    ) -> Self {
+        let mut type_cache = TypeCache::new(tcx, instance.substs);
 
         let return_type_is_void = if let TyKind::Tuple(substs) = &body.return_ty().kind {
             substs.is_empty()
@@ -302,6 +321,10 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
             main_gcc_block,
             stmt_list,
         }
+    }
+
+    fn convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
+        self.type_cache.convert_type(ty)
     }
 
     fn get_place(&mut self, place: &Place<'tcx>) -> Tree {
@@ -375,7 +398,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                 match &lit.val {
                     Value(ConstValue::Scalar(Scalar::Raw { data, size: _ })) => match lit.ty.kind {
                         Int(_) | Uint(_) => Tree::new_int_constant(
-                            self.type_cache.convert_type(lit.ty),
+                            self.convert_type(lit.ty),
                             // TODO: this is incorrect on big-endian architectures; data should be
                             // treated as a byte array up to size bytes long.
                             (*data).try_into().unwrap(),
@@ -384,7 +407,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                         FnDef(def_id, substs) => {
                             let name = self.tcx.symbol_name(Instance::new(def_id, substs));
                             let name = name.name;
-                            let fn_type = self.type_cache.convert_type(lit.ty);
+                            let fn_type = self.convert_type(lit.ty);
                             // TODO: move next line into Function::new
                             let name = CString::new(&*name.as_str()).unwrap();
                             Function::new(&name, fn_type).0
@@ -448,14 +471,14 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                     _ => unimplemented!("binop {:?}", op),
                 };
 
-                let type_ = self.type_cache.convert_type(rv.ty(self.body, self.tcx));
+                let type_ = self.convert_type(rv.ty(self.body, self.tcx));
                 let operand1 = self.convert_operand(operand1);
                 let operand2 = self.convert_operand(operand2);
                 Tree::new2(code, type_, operand1, operand2)
             }
 
             CheckedBinaryOp(op, operand1, operand2) => {
-                let type_ = self.type_cache.convert_type(rv.ty(self.body, self.tcx));
+                let type_ = self.convert_type(rv.ty(self.body, self.tcx));
                 let unchecked_value =
                     self.convert_rvalue(&BinaryOp(*op, operand1.clone(), operand2.clone()));
                 // TODO: perform the check
@@ -473,7 +496,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
 
             UnaryOp(op, operand) => {
                 let operand = self.convert_operand(operand);
-                let type_ = self.type_cache.convert_type(rv.ty(self.body, self.tcx));
+                let type_ = self.convert_type(rv.ty(self.body, self.tcx));
                 let code = match op {
                     UnOp::Neg => TreeCode::NegateExpr,
                     UnOp::Not => TreeCode::BitNotExpr,
@@ -572,7 +595,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                 assert!(values.len() >= 1);
                 assert_eq!(targets.len(), values.len() + 1);
 
-                let switch_ty_tree = self.type_cache.convert_type(switch_ty);
+                let switch_ty_tree = self.convert_type(switch_ty);
 
                 if values.len() == 1 {
                     let value = values[0];
@@ -652,7 +675,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                         unreachable!("call's return type is an enum variant");
                     }
 
-                    let call_expr_type = self.type_cache.convert_type(place_ty.ty);
+                    let call_expr_type = self.convert_type(place_ty.ty);
                     let returns_void = place_ty.ty.is_unit();
                     (call_expr_type, returns_void)
                 } else {
@@ -702,7 +725,7 @@ fn func_mir_to_gcc<'tcx>(
     body: &'tcx Body,
 ) {
     let body = body.subst(tcx, instance.substs);
-    let mut fn_conv = FunctionConversion::new(tcx, name, &body);
+    let mut fn_conv = FunctionConversion::new(tcx, name, instance, &body);
 
     println!("name: {}", name);
     for (bb_idx, bb) in body.basic_blocks().iter_enumerated() {
