@@ -5,6 +5,7 @@ use rustc::{
     mir::{
         interpret::{ConstValue, Scalar},
         mono::MonoItem,
+        tcx::PlaceTy,
         AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, CastKind, Local, NullOp, Operand,
         Place, PlaceBase, ProjectionElem, Rvalue, StatementKind, TerminatorKind, UnOp,
     },
@@ -274,8 +275,22 @@ impl<'tcx> TypeCache<'tcx> {
             FnPtr(sig) => Tree::new_pointer_type(self.convert_fn_sig(sig).into_function_type()),
 
             Ref(_region, ty, _mutbl) => {
-                // TODO: mutability
-                Tree::new_pointer_type(self.convert_type(ty))
+                if let Slice(element_type) = ty.kind {
+                    // TODO: mutability
+                    // Represent a slice reference as a record containing (*T, size)
+                    let t_ptr_ty = Tree::new_pointer_type(self.convert_type(element_type));
+                    let size_ty = USIZE_KIND.into();
+
+                    let mut record_ty = Tree::new_record_type(TreeCode::RecordType);
+                    record_ty.finish_record_type(DeclList::new(
+                        TreeCode::FieldDecl,
+                        &[t_ptr_ty, size_ty],
+                    ));
+                    record_ty
+                } else {
+                    // TODO: mutability
+                    Tree::new_pointer_type(self.convert_type(ty))
+                }
             }
 
             Projection(_proj_ty) => unreachable!(concat!(
@@ -467,6 +482,18 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         }
     }
 
+    /// Returns true for both &[T] and [T]
+    fn is_place_ty_slice(place_ty: PlaceTy<'tcx>) -> bool {
+        if place_ty.variant_index.is_some() {
+            return false;
+        }
+
+        match place_ty.ty.kind {
+            ty::Slice(_) | ty::Str => true,
+            _ => place_ty.ty.is_slice(),
+        }
+    }
+
     fn get_place(&mut self, place: &Place<'tcx>) -> Tree {
         let base = match &place.base {
             PlaceBase::Local(local) => self.get_local(*local),
@@ -476,6 +503,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         // Now apply any projections
 
         let mut component = base;
+        let mut component_ty = place.base.ty(&self.body.local_decls);
 
         for elem in place.projection {
             use ProjectionElem::*;
@@ -494,22 +522,35 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                 }
 
                 Deref => {
-                    component = Tree::new_indirect_ref(component);
+                    if Self::is_place_ty_slice(component_ty) {
+                        // If it's a slice, then don't do anything, we'll need the slice ref
+                        // struct itself.
+                    } else {
+                        component = Tree::new_indirect_ref(component);
+                    }
                 }
 
                 Index(index) => {
                     let index = self.get_local(*index);
 
-                    // an ArrayType's type field contains its element type
-                    let array_type = component.get_type();
-                    assert_eq!(array_type.get_code(), TreeCode::ArrayType);
-                    let element_type = array_type.get_type();
+                    if Self::is_place_ty_slice(component_ty) {
+                        let ptr = Tree::new_record_field_ref(component, 0);
+                        let ptr = Tree::new2(TreeCode::PointerPlusExpr, ptr.get_type(), ptr, index);
+                        component = Tree::new_indirect_ref(ptr);
+                    } else {
+                        // an ArrayType's type field contains its element type
+                        let array_type = component.get_type();
+                        assert_eq!(array_type.get_code(), TreeCode::ArrayType);
+                        let element_type = array_type.get_type();
 
-                    component = Tree::new_array_index_ref(element_type, component, index);
+                        component = Tree::new_array_index_ref(element_type, component, index);
+                    }
                 }
 
                 _ => unimplemented!("projection {:?}", elem),
             }
+
+            component_ty = component_ty.projection_ty(self.tcx, elem);
         }
 
         component
@@ -751,6 +792,17 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                         agg_kind,
                         operands
                     ),
+                }
+            }
+
+            Len(place) => {
+                let place_expr = self.get_place(place);
+
+                let place_ty = place.ty(&self.body.local_decls, self.tcx);
+                if Self::is_place_ty_slice(place_ty) {
+                    Tree::new_record_field_ref(place_expr, 1)
+                } else {
+                    todo!("Len of non-slice {:?} of type {:?}", place, place_ty);
                 }
             }
 
