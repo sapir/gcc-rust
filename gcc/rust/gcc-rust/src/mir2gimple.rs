@@ -4,10 +4,11 @@ use rustc::{
     mir::{
         interpret::{ConstValue, Scalar},
         mono::MonoItem,
-        AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, Local, NullOp, Operand, Place,
-        PlaceBase, ProjectionElem, Rvalue, StatementKind, TerminatorKind, UnOp,
+        AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, CastKind, Local, NullOp, Operand,
+        Place, PlaceBase, ProjectionElem, Rvalue, StatementKind, TerminatorKind, UnOp,
     },
     ty::{
+        adjustment::PointerCast,
         subst::{Subst, SubstsRef},
         AdtKind, ConstKind, Instance, ParamEnv, PolyFnSig, Ty, TyCtxt, TyKind, TypeAndMut,
         VariantDef,
@@ -597,6 +598,27 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
             Discriminant(place) => self.get_discriminant_ref(place),
 
             Ref(_region, _borrow_kind, place) => Tree::new_addr_expr(self.get_place(place)),
+
+            Cast(cast_kind, operand, new_ty) => {
+                use CastKind::*;
+                use PointerCast::*;
+
+                match cast_kind {
+                    Misc => Tree::new1(
+                        TreeCode::ConvertExpr,
+                        self.convert_type(new_ty),
+                        self.convert_operand(operand),
+                    ),
+
+                    Pointer(MutToConstPointer) | Pointer(UnsafeFnPointer) => Tree::new1(
+                        TreeCode::NopExpr,
+                        self.convert_type(new_ty),
+                        self.convert_operand(operand),
+                    ),
+
+                    _ => unimplemented!("cast kind {:?} in {:?}", cast_kind, rv),
+                }
+            }
 
             Aggregate(agg_kind, operands) => {
                 use AggregateKind::*;
