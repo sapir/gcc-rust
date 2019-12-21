@@ -36,23 +36,20 @@ impl<'tcx> TypeCache<'tcx> {
         }
     }
 
-    fn convert_variant(
+    fn convert_variant_fields(
         &mut self,
-        code: TreeCode,
         variant: &VariantDef,
         substs: SubstsRef<'tcx>,
-    ) -> Tree {
+    ) -> DeclList {
         // TODO: field names
-        let fields = DeclList::new(
+        DeclList::new(
             TreeCode::FieldDecl,
             &variant
                 .fields
                 .iter()
                 .map(|field| self.convert_type(field.ty(self.tcx, substs)))
                 .collect::<Vec<_>>(),
-        );
-
-        Tree::new_record_type(code, fields)
+        )
     }
 
     fn do_convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
@@ -84,22 +81,28 @@ impl<'tcx> TypeCache<'tcx> {
                             .collect::<Vec<_>>(),
                     );
 
-                    Tree::new_record_type(TreeCode::RecordType, fields)
+                    let mut ty = Tree::new_record_type(TreeCode::RecordType);
+                    ty.finish_record_type(fields);
+                    ty
                 }
             }
 
             Adt(adt_def, substs) => {
+                // Cache type before creating fields to avoid infinite recursion for
+                // self-referential types.
+                let code = match adt_def.adt_kind() {
+                    AdtKind::Struct | AdtKind::Enum => TreeCode::RecordType,
+                    AdtKind::Union => TreeCode::UnionType,
+                };
+
+                let mut tt = Tree::new_record_type(code);
+                self.hashmap.insert(ty, tt);
+
+                // Now add the fields...
                 match adt_def.adt_kind() {
                     AdtKind::Struct | AdtKind::Union => {
                         let variant = adt_def.non_enum_variant();
-
-                        let code = match adt_def.adt_kind() {
-                            AdtKind::Struct => TreeCode::RecordType,
-                            AdtKind::Union => TreeCode::UnionType,
-                            _ => unreachable!(),
-                        };
-
-                        self.convert_variant(code, variant, substs)
+                        tt.finish_record_type(self.convert_variant_fields(variant, substs));
                     }
 
                     AdtKind::Enum => {
@@ -122,20 +125,28 @@ impl<'tcx> TypeCache<'tcx> {
                             .variants
                             .iter()
                             .map(|variant| {
-                                self.convert_variant(TreeCode::RecordType, variant, substs)
+                                // afaik variants cannot currently be treated as a separate type,
+                                // so they can't be self-referential and we don't need to cache
+                                // them.
+                                let mut variant_ty = Tree::new_record_type(TreeCode::RecordType);
+                                variant_ty.finish_record_type(
+                                    self.convert_variant_fields(variant, substs),
+                                );
+                                variant_ty
                             })
                             .collect::<Vec<_>>();
-                        let variant_union_ty = Tree::new_record_type(
-                            TreeCode::UnionType,
-                            DeclList::new(TreeCode::FieldDecl, &variants),
-                        );
+                        let mut variant_union_ty = Tree::new_record_type(TreeCode::UnionType);
+                        variant_union_ty
+                            .finish_record_type(DeclList::new(TreeCode::FieldDecl, &variants));
 
-                        Tree::new_record_type(
-                            TreeCode::RecordType,
-                            DeclList::new(TreeCode::FieldDecl, &[discr_ty, variant_union_ty]),
-                        )
+                        tt.finish_record_type(DeclList::new(
+                            TreeCode::FieldDecl,
+                            &[discr_ty, variant_union_ty],
+                        ));
                     }
                 }
+
+                tt
             }
 
             RawPtr(TypeAndMut { ty, mutbl: _ }) => {

@@ -2113,10 +2113,15 @@ impl Tree {
         unsafe { _build2(TreeCode::SwitchExpr, switch_ty, discr, body) }
     }
 
-    pub fn new_record_type(code: TreeCode, mut fields: DeclList) -> Self {
-        let ty = unsafe { build_record_type(code, fields.head().unwrap_or(NULL_TREE)) };
-        fields.set_context(ty);
-        ty
+    pub fn new_record_type(code: TreeCode) -> Self {
+        unsafe { _build0(code, NULL_TREE) }
+    }
+
+    pub fn finish_record_type(&mut self, mut fields: DeclList) {
+        unsafe {
+            finish_record_type(*self, fields.head().unwrap_or(NULL_TREE));
+        }
+        fields.set_context(*self);
     }
 
     pub fn get_record_type_field_decl(&self, index: usize) -> Self {
@@ -2235,7 +2240,7 @@ extern "C" {
     fn build_label_decl(loc: Location, context: Tree) -> Tree;
     fn make_decl_chain(code: TreeCode, num_decls: usize, types: *const Tree, decls: *mut Tree);
     fn set_decl_chain_context(chain_head: Tree, context: Tree);
-    fn build_record_type(code: TreeCode, fields_chain_head: Tree) -> Tree;
+    fn finish_record_type(record_type: Tree, fields_chain_head: Tree) -> Tree;
     fn get_record_type_field_decl(record_type: Tree, index: usize) -> Tree;
     fn build_compound_literal_expr(type_: Tree, value: Tree, context: Tree) -> Tree;
     fn set_fn_result(fn_decl: Tree, result: Tree);

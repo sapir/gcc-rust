@@ -235,12 +235,10 @@ extern "C" {
     }
   }
 
-  tree build_record_type(enum tree_code code, tree fields_chain_head) {
-    tree type = build0(code, NULL_TREE);
-    TYPE_FIELDS(type) = fields_chain_head;
+  void finish_record_type(tree record_type, tree fields_chain_head) {
+    TYPE_FIELDS(record_type) = fields_chain_head;
     // TODO: use the same layout as rustc
-    layout_type(type);
-    return type;
+    layout_type(record_type);
   }
 
   // TODO: store these in a rust vec? then no need for a loop here
