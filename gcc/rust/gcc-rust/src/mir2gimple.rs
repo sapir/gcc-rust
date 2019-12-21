@@ -3,8 +3,8 @@ use rustc::{
     mir::{
         interpret::{ConstValue, Scalar},
         mono::MonoItem,
-        BasicBlock, BasicBlockData, BinOp, Body, Local, Operand, Place, PlaceBase, ProjectionElem,
-        Rvalue, StatementKind, TerminatorKind, UnOp,
+        AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, Local, Operand, Place, PlaceBase,
+        ProjectionElem, Rvalue, StatementKind, TerminatorKind, UnOp,
     },
     ty::{
         subst::{Subst, SubstsRef},
@@ -492,7 +492,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                     self.convert_rvalue(&BinaryOp(*op, operand1.clone(), operand2.clone()));
                 // TODO: perform the check
                 let check_value = TreeIndex::BooleanTrue.into();
-                let constructor = Tree::new_constructor(
+                let constructor = Tree::new_record_constructor(
                     type_,
                     &[
                         type_.get_record_type_field_decl(0),
@@ -516,6 +516,30 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
             Discriminant(place) => self.get_discriminant_ref(place),
 
             Ref(_region, _borrow_kind, place) => Tree::new_addr_expr(self.get_place(place)),
+
+            Aggregate(agg_kind, operands) => {
+                use AggregateKind::*;
+
+                match &**agg_kind {
+                    Array(_element_type) => {
+                        let array_type = self.convert_type(rv.ty(self.body, self.tcx));
+                        let constructor = Tree::new_array_constructor(
+                            array_type,
+                            &operands
+                                .into_iter()
+                                .map(|operand| self.convert_operand(operand))
+                                .collect::<Vec<_>>(),
+                        );
+                        Tree::new_compound_literal_expr(array_type, constructor, self.fn_decl.0)
+                    }
+
+                    _ => unimplemented!(
+                        "rvalue aggregate kind {:?}, operands={:?}",
+                        agg_kind,
+                        operands
+                    ),
+                }
+            }
 
             _ => unimplemented!("rvalue {:?}", rv),
         }

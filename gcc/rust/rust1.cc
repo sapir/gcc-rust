@@ -176,7 +176,7 @@ extern "C" {
     return TREE_CODE(t);
   }
 
-  tree build_constructor_from_array(
+  tree build_constructor_from_field_array(
       tree type,
       size_t num_fields,
       const tree *field_decls,
@@ -188,6 +188,23 @@ extern "C" {
       vec_alloc(v, num_fields);
       for (size_t i = 0; i < num_fields; ++i) {
 	CONSTRUCTOR_APPEND_ELT(v, field_decls[i], field_values[i]);
+      }
+    }
+
+    return build_constructor(type, v);
+  }
+
+  tree build_constructor_from_element_array(
+      tree type,
+      size_t num_elements,
+      const tree *elements
+  ) {
+    vec<constructor_elt, va_gc> *v = NULL;
+
+    if (num_elements > 0) {
+      vec_alloc(v, num_elements);
+      for (size_t i = 0; i < num_elements; ++i) {
+	CONSTRUCTOR_APPEND_ELT(v, build_int_cst_type(integer_type_node, i), elements[i]);
       }
     }
 

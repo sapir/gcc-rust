@@ -2128,15 +2128,25 @@ impl Tree {
         unsafe { get_record_type_field_decl(*self, index) }
     }
 
-    pub fn new_constructor(record_type: Tree, field_decls: &[Tree], field_values: &[Tree]) -> Self {
+    pub fn new_record_constructor(
+        record_type: Tree,
+        field_decls: &[Tree],
+        field_values: &[Tree],
+    ) -> Self {
         assert_eq!(field_decls.len(), field_values.len());
         unsafe {
-            build_constructor_from_array(
+            build_constructor_from_field_array(
                 record_type,
                 field_decls.len(),
                 field_decls.as_ptr(),
                 field_values.as_ptr(),
             )
+        }
+    }
+
+    pub fn new_array_constructor(array_type: Tree, elements: &[Tree]) -> Self {
+        unsafe {
+            build_constructor_from_element_array(array_type, elements.len(), elements.as_ptr())
         }
     }
 
@@ -2233,11 +2243,17 @@ extern "C" {
     fn _builtin_decl_implicit(fncode: BuiltinFunction) -> Tree;
     fn _build_array_type_nelts(elt_type: Tree, nelts: u64) -> Tree;
 
-    fn build_constructor_from_array(
+    fn build_constructor_from_field_array(
         type_: Tree,
         num_fields: usize,
         field_decls: *const Tree,
         field_values: *const Tree,
+    ) -> Tree;
+
+    fn build_constructor_from_element_array(
+        type_: Tree,
+        num_elements: usize,
+        elements: *const Tree,
     ) -> Tree;
 
     fn get_tree_type(tree: Tree) -> Tree;
