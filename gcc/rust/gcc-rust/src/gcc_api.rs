@@ -2195,6 +2195,19 @@ impl Tree {
     pub fn new_array_type(element_type: Tree, num_elements: u64) -> Self {
         unsafe { _build_array_type_nelts(element_type, num_elements) }
     }
+
+    pub fn new_array_index_ref(element_type: Tree, array_expr: Tree, index_expr: Tree) -> Self {
+        unsafe {
+            _build4(
+                TreeCode::ArrayRef,
+                element_type,
+                array_expr,
+                index_expr,
+                NULL_TREE,
+                NULL_TREE,
+            )
+        }
+    }
 }
 
 extern "C" {

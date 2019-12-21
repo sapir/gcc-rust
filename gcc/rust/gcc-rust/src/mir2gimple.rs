@@ -336,19 +336,20 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         self.type_cache.convert_type(ty)
     }
 
+    fn get_local(&self, local: Local) -> Tree {
+        let n = local.as_usize();
+        if n == 0 {
+            self.tmp_var_decl_for_res
+        } else if n <= self.parm_decls.len() {
+            self.parm_decls[n - 1]
+        } else {
+            self.vars[n - self.parm_decls.len() - 1]
+        }
+    }
+
     fn get_place(&mut self, place: &Place<'tcx>) -> Tree {
         let base = match &place.base {
-            PlaceBase::Local(local) => {
-                let n = local.as_usize();
-                if n == 0 {
-                    self.tmp_var_decl_for_res
-                } else if n <= self.parm_decls.len() {
-                    self.parm_decls[n - 1]
-                } else {
-                    self.vars[n - self.parm_decls.len() - 1]
-                }
-            }
-
+            PlaceBase::Local(local) => self.get_local(*local),
             _ => unimplemented!("base {:?}", place),
         };
 
@@ -383,6 +384,17 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
 
                 Deref => {
                     component = Tree::new_indirect_ref(component);
+                }
+
+                Index(index) => {
+                    let index = self.get_local(*index);
+
+                    // an ArrayType's type field contains its element type
+                    let array_type = component.get_type();
+                    assert_eq!(array_type.get_code(), TreeCode::ArrayType);
+                    let element_type = array_type.get_type();
+
+                    component = Tree::new_array_index_ref(element_type, component, index);
                 }
 
                 _ => unimplemented!("projection {:?}", elem),
