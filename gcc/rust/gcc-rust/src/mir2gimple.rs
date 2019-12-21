@@ -177,6 +177,15 @@ impl<'tcx> TypeCache<'tcx> {
                 " subst_and_normalize_erasing_regions"
             )),
 
+            Array(element_type, num_elements) => {
+                if let ConstKind::Value(ConstValue::Scalar(num_elements)) = num_elements.val {
+                    let num_elements = num_elements.to_u64().expect("expected bits, got a ptr?");
+                    Tree::new_array_type(self.convert_type(element_type), num_elements)
+                } else {
+                    unreachable!("array with non-const number of elements");
+                }
+            }
+
             _ => unimplemented!("type: {:?} ({:?})", ty, ty.kind),
         }
     }

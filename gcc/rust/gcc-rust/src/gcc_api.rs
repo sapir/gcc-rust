@@ -2181,6 +2181,10 @@ impl Tree {
             )
         }
     }
+
+    pub fn new_array_type(element_type: Tree, num_elements: u64) -> Self {
+        unsafe { _build_array_type_nelts(element_type, num_elements) }
+    }
 }
 
 extern "C" {
@@ -2227,6 +2231,8 @@ extern "C" {
     fn _build_fn_decl(name: *const c_char, decltype: Tree) -> Tree;
     fn _gimplify_function_tree(tree: Tree);
     fn _builtin_decl_implicit(fncode: BuiltinFunction) -> Tree;
+    fn _build_array_type_nelts(elt_type: Tree, nelts: u64) -> Tree;
+
     fn build_constructor_from_array(
         type_: Tree,
         num_fields: usize,

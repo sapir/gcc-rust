@@ -164,6 +164,10 @@ extern "C" {
     return builtin_decl_implicit(fncode);
   }
 
+  tree _build_array_type_nelts(tree elt_type, uint64_t nelts) {
+    return build_array_type_nelts(elt_type, nelts);
+  }
+
   tree get_tree_type(tree t) {
     return TREE_TYPE(t);
   }
