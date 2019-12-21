@@ -387,14 +387,8 @@ impl<'tcx> FunctionConversion<'tcx> {
                         ),
 
                         FnDef(def_id, substs) => {
-                            if !substs.is_empty() {
-                                unimplemented!(
-                                    "Constant {:?} containing a reference to a generic function",
-                                    lit
-                                );
-                            }
-
-                            let name = self.tcx.item_name(def_id);
+                            let name = self.tcx.symbol_name(Instance::new(def_id, substs));
+                            let name = name.name;
                             let fn_type = self.type_cache.convert_type(lit.ty);
                             // TODO: move next line into Function::new
                             let name = CString::new(&*name.as_str()).unwrap();
@@ -732,8 +726,7 @@ pub fn mir2gimple<'tcx>(queries: &'tcx Queries<'tcx>) {
         for item in mono_items {
             match item {
                 MonoItem::Fn(instance) => {
-                    // TODO: symbol_name?
-                    let name = tcx.item_name(instance.def_id());
+                    let name = tcx.symbol_name(instance).name;
                     let mir = tcx.optimized_mir(instance.def_id());
                     func_mir_to_gcc(tcx, name, instance, mir);
                 }
