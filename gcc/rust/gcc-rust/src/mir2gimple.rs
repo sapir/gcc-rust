@@ -383,6 +383,8 @@ impl<'tcx> FunctionConversion<'tcx> {
                     Value(ConstValue::Scalar(Scalar::Raw { data, size: _ })) => match lit.ty.kind {
                         Int(_) | Uint(_) => Tree::new_int_constant(
                             self.type_cache.convert_type(lit.ty),
+                            // TODO: this is incorrect on big-endian architectures; data should be
+                            // treated as a byte array up to size bytes long.
                             (*data).try_into().unwrap(),
                         ),
 
