@@ -5,6 +5,6 @@ authors = ["sapir <yasapir@gmail.com>"]
 edition = "2018"
 
 [lib]
-crate-type = ["staticlib"]
+crate-type = ["dylib"]
 
 [dependencies]

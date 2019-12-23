@@ -23,14 +23,21 @@ rust_OBJS = \
 	rust/rust1.o \
 	$(END)
 
-RUST_BUILD_DIR = $(srcdir)/rust/gcc-rust/target/debug
+RUST_SRC_DIR = $(srcdir)/rust/gcc-rust
+RUST_BUILD_DIR = $(RUST_SRC_DIR)/target/debug
 RUST_LIB_NAME = gcc_rust
-RUST_LIB_PATH = $(RUST_BUILD_DIR)/lib$(RUST_LIB_NAME).a
+RUST_LIB_SONAME = lib$(RUST_LIB_NAME).so
+RUST_LIB_BUILD_PATH = $(RUST_BUILD_DIR)/$(RUST_LIB_SONAME)
 
-rust1$(exeext): attribs.o $(rust_OBJS) $(BACKEND) $(LIBDEPS) $(RUST_LIB_PATH)
+RUST_SYSROOT = $(shell cd "$(RUST_SRC_DIR)" && rustc --print sysroot)
+
+rust1$(exeext): attribs.o $(rust_OBJS) $(BACKEND) $(LIBDEPS)
 	+$(LLINKER) $(ALL_LINKERFLAGS) $(LDFLAGS) -o $@ \
 		  attribs.o $(rust_OBJS) $(BACKEND) $(LIBS) $(BACKENDLIBS) \
-		  -L$(RUST_BUILD_DIR) -l$(RUST_LIB_NAME) -pthread
+		  -L$(RUST_BUILD_DIR) -l$(RUST_LIB_NAME) \
+		  -Wl,-rpath=$(DESTDIR)/$(libdir) \
+		  -Wl,-rpath=$(RUST_SYSROOT)/lib \
+		  -pthread
 
 rust.all.cross:
 
@@ -39,7 +46,12 @@ rust.rest.encap:
 
 rust.install-common: installdirs
 	-rm -f $(DESTDIR)$(bindir)/$(GCCRUST_INSTALL_NAME)$(exeext)
-	$(INSTALL_PROGRAM) gccrust$(exeext) $(DESTDIR)$(bindir)/$(GCCRUST_INSTALL_NAME)$(exeext)
+	$(INSTALL_PROGRAM) \
+	  $(RUST_LIB_BUILD_PATH) \
+	  $(DESTDIR)/$(libdir)/$(RUST_LIB_SONAME)
+	$(INSTALL_PROGRAM) \
+	  gccrust$(exeext) \
+	  $(DESTDIR)$(bindir)/$(GCCRUST_INSTALL_NAME)$(exeext)
 	rm -f $(DESTDIR)$(bindir)/$(GCCRUST_TARGET_INSTALL_NAME)$(exeext); \
 	( cd $(DESTDIR)$(bindir) && \
 	  $(LN) $(GCCRUST_INSTALL_NAME)$(exeext) $(GCCRUST_TARGET_INSTALL_NAME)$(exeext) ); \

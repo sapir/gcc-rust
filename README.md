@@ -29,7 +29,7 @@ Build Rust with this patch: https://github.com/rust-lang/rust/pull/67126
 mkdir gcc
 cd gcc
 git clone --depth 50 -b rust https://github.com/sapir/gcc-rust/ gcc-src
-(cd gcc-src/gcc/rust/gcc-rust; cargo build)
+(cd gcc-src/gcc/rust/gcc-rust; cargo rustc -- -C link-args="-Wl,-rpath,$(rustc --print sysroot)/lib")
 
 mkdir gcc-build
 cd gcc-build
