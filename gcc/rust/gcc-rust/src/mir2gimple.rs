@@ -442,6 +442,8 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                             Function::new(&name, fn_type).0
                         }
 
+                        Tuple(substs) if substs.is_empty() => TreeIndex::Void.into(),
+
                         _ => unimplemented!(
                             "const, ty.kind={:?}, ty={:?}, val={:?}",
                             lit.ty.kind,
