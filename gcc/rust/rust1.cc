@@ -377,8 +377,7 @@ static tree rust_langhook_type_for_size(unsigned int bits ATTRIBUTE_UNUSED,
 static tree rust_langhook_builtin_function(tree decl) { return decl; }
 
 static bool rust_langhook_global_bindings_p(void) {
-  gcc_unreachable();
-  return true;
+  return current_function_decl == NULL_TREE;
 }
 
 static tree rust_langhook_pushdecl(tree decl ATTRIBUTE_UNUSED) {
