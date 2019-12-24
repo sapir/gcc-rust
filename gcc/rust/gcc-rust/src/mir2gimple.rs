@@ -164,6 +164,16 @@ impl<'tcx> TypeCache<'tcx> {
         record_ty
     }
 
+    fn convert_slice(element_type: Tree) -> Tree {
+        // Represent a slice reference as a record containing (*T, size)
+        let t_ptr_ty = Tree::new_pointer_type(element_type);
+        let size_ty = USIZE_KIND.into();
+
+        let mut record_ty = Tree::new_record_type(TreeCode::RecordType);
+        record_ty.finish_record_type(DeclList::new(TreeCode::FieldDecl, &[t_ptr_ty, size_ty]));
+        record_ty
+    }
+
     fn do_convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
         use TyKind::*;
 
@@ -275,20 +285,12 @@ impl<'tcx> TypeCache<'tcx> {
             FnPtr(sig) => Tree::new_pointer_type(self.convert_fn_sig(sig).into_function_type()),
 
             Ref(_region, ty, _mutbl) => {
+                // TODO: mutability
                 if let Slice(element_type) = ty.kind {
-                    // TODO: mutability
-                    // Represent a slice reference as a record containing (*T, size)
-                    let t_ptr_ty = Tree::new_pointer_type(self.convert_type(element_type));
-                    let size_ty = USIZE_KIND.into();
-
-                    let mut record_ty = Tree::new_record_type(TreeCode::RecordType);
-                    record_ty.finish_record_type(DeclList::new(
-                        TreeCode::FieldDecl,
-                        &[t_ptr_ty, size_ty],
-                    ));
-                    record_ty
+                    Self::convert_slice(self.convert_type(element_type))
+                } else if let Str = ty.kind {
+                    Self::convert_slice(IntegerTypeKind::UnsignedChar.into())
                 } else {
-                    // TODO: mutability
                     Tree::new_pointer_type(self.convert_type(ty))
                 }
             }
