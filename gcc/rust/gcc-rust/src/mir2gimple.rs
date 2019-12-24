@@ -18,6 +18,9 @@ use std::{collections::HashMap, convert::TryInto, ffi::CString};
 use syntax::ast::{IntTy, UintTy};
 use syntax_pos::symbol::Symbol;
 
+const USIZE_KIND: IntegerTypeKind = IntegerTypeKind::UnsignedLong;
+const ISIZE_KIND: IntegerTypeKind = IntegerTypeKind::Long;
+
 struct ConvertedFnSig {
     pub return_type: Tree,
     pub arg_types: Vec<Tree>,
@@ -72,12 +75,12 @@ impl<'tcx> TypeCache<'tcx> {
         match ty.kind {
             Bool => TreeIndex::BooleanType.into(),
             // TODO: are these correct?
-            Int(IntTy::Isize) => IntegerTypeKind::Long.into(),
+            Int(IntTy::Isize) => ISIZE_KIND.into(),
             Int(IntTy::I8) => IntegerTypeKind::SignedChar.into(),
             Int(IntTy::I16) => IntegerTypeKind::Short.into(),
             Int(IntTy::I32) => IntegerTypeKind::Int.into(),
             Int(IntTy::I64) => IntegerTypeKind::LongLong.into(),
-            Uint(UintTy::Usize) => IntegerTypeKind::UnsignedLong.into(),
+            Uint(UintTy::Usize) => USIZE_KIND.into(),
             Uint(UintTy::U8) => IntegerTypeKind::UnsignedChar.into(),
             Uint(UintTy::U16) => IntegerTypeKind::UnsignedShort.into(),
             Uint(UintTy::U32) => IntegerTypeKind::UnsignedInt.into(),
@@ -133,7 +136,7 @@ impl<'tcx> TypeCache<'tcx> {
                         // (It seems rustc expects the discriminant to be an isize, which is
                         // currently converted into a long.)
 
-                        let discr_ty = IntegerTypeKind::Long.into();
+                        let discr_ty = ISIZE_KIND.into();
 
                         let variants = adt_def
                             .variants
@@ -639,10 +642,8 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                 } => {
                     let discr_ref = self.get_discriminant_ref(place);
 
-                    let variant_index = Tree::new_int_constant(
-                        IntegerTypeKind::Long,
-                        variant_index.as_u32().into(),
-                    );
+                    let variant_index =
+                        Tree::new_int_constant(ISIZE_KIND, variant_index.as_u32().into());
 
                     self.stmt_list
                         .push(Tree::new_init_expr(discr_ref, variant_index));
