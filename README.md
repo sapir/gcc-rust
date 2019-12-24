@@ -23,13 +23,14 @@ functions in `gcc/rust/rust1.cc`.
 
 (Be warned, these are currently rather rough.)
 
-Build Rust with this patch: https://github.com/rust-lang/rust/pull/67126
-
 ```sh
+rustup toolchain add nightly
+rustup component add --toolchain=nightly rustc-dev
+
 mkdir gcc
 cd gcc
 git clone --depth 50 -b rust https://github.com/sapir/gcc-rust/ gcc-src
-(cd gcc-src/gcc/rust/gcc-rust; cargo rustc -- -C link-args="-Wl,-rpath,$(rustc --print sysroot)/lib")
+(cd gcc-src/gcc/rust/gcc-rust; rustup override set nightly)
 
 mkdir gcc-build
 cd gcc-build
