@@ -929,17 +929,18 @@ fn func_mir_to_gcc<'tcx>(
     instance: Instance<'tcx>,
     body: &'tcx Body,
 ) {
+    println!("name: {}", name);
+
     let body = body.subst(tcx, instance.substs);
     let mut fn_conv = FunctionConversion::new(tcx, name, instance, &body);
 
-    println!("name: {}", name);
     for (bb_idx, bb) in body.basic_blocks().iter_enumerated() {
         fn_conv.convert_basic_block(bb_idx, bb);
     }
 
-    println!();
-
     fn_conv.finalize();
+
+    println!();
 }
 
 pub fn mir2gimple<'tcx>(queries: &'tcx Queries<'tcx>) {
