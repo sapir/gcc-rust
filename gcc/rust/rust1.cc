@@ -176,6 +176,10 @@ extern "C" {
     return TREE_CODE(t);
   }
 
+  tree get_type_size_bytes(tree t) {
+    return TYPE_SIZE_UNIT(t);
+  }
+
   tree build_constructor_from_field_array(
       tree type,
       size_t num_fields,

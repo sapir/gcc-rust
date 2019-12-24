@@ -2016,6 +2016,10 @@ impl Tree {
         unsafe { get_tree_code(self) }
     }
 
+    pub fn get_type_size_bytes(self) -> Tree {
+        unsafe { get_type_size_bytes(self) }
+    }
+
     pub fn new_function_type(return_type: Tree, arg_types: &[Tree]) -> Self {
         unsafe { _build_function_type_array(return_type, arg_types.len(), arg_types.as_ptr()) }
     }
@@ -2271,6 +2275,7 @@ extern "C" {
 
     fn get_tree_type(tree: Tree) -> Tree;
     fn get_tree_code(tree: Tree) -> TreeCode;
+    fn get_type_size_bytes(tree: Tree) -> Tree;
     fn build_int_constant(inttype: Tree, value: i64) -> Tree;
     fn build_label_decl(loc: Location, context: Tree) -> Tree;
     fn make_decl_chain(code: TreeCode, num_decls: usize, types: *const Tree, decls: *mut Tree);

@@ -3,8 +3,8 @@ use rustc::{
     mir::{
         interpret::{ConstValue, Scalar},
         mono::MonoItem,
-        AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, Local, Operand, Place, PlaceBase,
-        ProjectionElem, Rvalue, StatementKind, TerminatorKind, UnOp,
+        AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, Local, NullOp, Operand, Place,
+        PlaceBase, ProjectionElem, Rvalue, StatementKind, TerminatorKind, UnOp,
     },
     ty::{
         subst::{Subst, SubstsRef},
@@ -546,6 +546,11 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                 };
                 Tree::new1(code, type_, operand)
             }
+
+            NullaryOp(op, ty) => match op {
+                NullOp::SizeOf => self.convert_type(ty).get_type_size_bytes(),
+                NullOp::Box => todo!("NullOp::Box, type {:?}", ty),
+            },
 
             Discriminant(place) => self.get_discriminant_ref(place),
 
