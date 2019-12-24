@@ -1,7 +1,13 @@
 GCCRUST_INSTALL_NAME := $(shell echo gccrust|sed '$(program_transform_name)')
 GCCRUST_TARGET_INSTALL_NAME := $(target_noncanonical)-$(shell echo gccrust|sed '$(program_transform_name)')
 
-rust: rust1$(exeext)
+RUST_SRC_DIR = $(srcdir)/rust/gcc-rust
+RUST_BUILD_DIR = $(RUST_SRC_DIR)/target/debug
+RUST_LIB_NAME = gcc_rust
+RUST_LIB_SONAME = lib$(RUST_LIB_NAME).so
+RUST_LIB_BUILD_PATH = $(RUST_BUILD_DIR)/$(RUST_LIB_SONAME)
+
+rust: rust1$(exeext) $(RUST_LIB_BUILD_PATH)
 
 .PHONY: rust
 
@@ -19,21 +25,24 @@ gccrust$(exeext): $(GCCRUST_OBJS) $(EXTRA_GCC_OBJS) libcommon-target.a $(LIBDEPS
 
 # The compiler proper
 
-rust_OBJS = \
+rust1_OBJS = \
 	rust/rust1.o \
 	$(END)
 
-RUST_SRC_DIR = $(srcdir)/rust/gcc-rust
-RUST_BUILD_DIR = $(RUST_SRC_DIR)/target/debug
-RUST_LIB_NAME = gcc_rust
-RUST_LIB_SONAME = lib$(RUST_LIB_NAME).so
-RUST_LIB_BUILD_PATH = $(RUST_BUILD_DIR)/$(RUST_LIB_SONAME)
+RUST_SRCS = \
+	$(RUST_SRC_DIR)/src/lib.rs \
+	$(RUST_SRC_DIR)/src/gcc_api.rs \
+	$(RUST_SRC_DIR)/src/mir2gimple.rs
 
 RUST_SYSROOT = $(shell cd "$(RUST_SRC_DIR)" && rustc --print sysroot)
 
-rust1$(exeext): attribs.o $(rust_OBJS) $(BACKEND) $(LIBDEPS)
+$(RUST_LIB_BUILD_PATH): $(RUST_SRCS)
+	(cd $(RUST_SRC_DIR); \
+	  cargo rustc -- -C link-args="-Wl,-rpath,$(RUST_SYSROOT)/lib")
+
+rust1$(exeext): attribs.o $(rust1_OBJS) $(BACKEND) $(LIBDEPS)
 	+$(LLINKER) $(ALL_LINKERFLAGS) $(LDFLAGS) -o $@ \
-		  attribs.o $(rust_OBJS) $(BACKEND) $(LIBS) $(BACKENDLIBS) \
+		  attribs.o $(rust1_OBJS) $(BACKEND) $(LIBS) $(BACKENDLIBS) \
 		  -L$(RUST_BUILD_DIR) -l$(RUST_LIB_NAME) \
 		  -Wl,-rpath=$(DESTDIR)/$(libdir) \
 		  -Wl,-rpath=$(RUST_SYSROOT)/lib \
