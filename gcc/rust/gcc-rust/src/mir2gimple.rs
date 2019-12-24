@@ -1,5 +1,6 @@
 use crate::gcc_api::*;
 use rustc::{
+    hir::def_id::DefId,
     mir::{
         interpret::{ConstValue, Scalar},
         mono::MonoItem,
@@ -14,6 +15,7 @@ use rustc::{
 };
 use rustc_interface::Queries;
 use rustc_mir::monomorphize::collector::{collect_crate_mono_items, MonoItemCollectionMode};
+use rustc_target::spec::abi::Abi;
 use std::{collections::HashMap, convert::TryInto, ffi::CString};
 use syntax::ast::{IntTy, UintTy};
 use syntax_pos::symbol::Symbol;
@@ -416,6 +418,31 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         component
     }
 
+    fn convert_fn_constant(
+        &mut self,
+        fn_type: Ty<'tcx>,
+        def_id: DefId,
+        substs: SubstsRef<'tcx>,
+    ) -> Tree {
+        let fn_sig = fn_type.fn_sig(self.tcx);
+        match fn_sig.abi() {
+            // Call instruction conversion removes intrinsics, so RustIntrinsic shouldn't show up
+            // at this point
+            Abi::RustIntrinsic => {
+                unreachable!("RustIntrinsic {:?} used outside of Call, or Call didn't convert it")
+            }
+            Abi::PlatformIntrinsic => unimplemented!("PlatformIntrinsic {:?}", fn_type),
+            _ => {}
+        }
+
+        let name = self.tcx.symbol_name(Instance::new(def_id, substs));
+        let name = name.name;
+        let fn_type = self.convert_type(fn_type);
+        // TODO: move next line into Function::new
+        let name = CString::new(&*name.as_str()).unwrap();
+        Function::new(&name, fn_type).0
+    }
+
     fn convert_operand(&mut self, operand: &Operand<'tcx>) -> Tree {
         use ConstKind::*;
         use Operand::*;
@@ -445,14 +472,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                             }
                         }
 
-                        FnDef(def_id, substs) => {
-                            let name = self.tcx.symbol_name(Instance::new(def_id, substs));
-                            let name = name.name;
-                            let fn_type = self.convert_type(lit.ty);
-                            // TODO: move next line into Function::new
-                            let name = CString::new(&*name.as_str()).unwrap();
-                            Function::new(&name, fn_type).0
-                        }
+                        FnDef(def_id, substs) => self.convert_fn_constant(lit.ty, def_id, substs),
 
                         Tuple(substs) if substs.is_empty() => TreeIndex::Void.into(),
 
@@ -598,6 +618,89 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         )
     }
 
+    fn convert_rust_intrinsic(
+        &mut self,
+        def_id: DefId,
+        substs: SubstsRef<'tcx>,
+        original_args: &[Operand<'tcx>],
+        converted_args: &[Tree],
+        call_expr_type: Tree,
+    ) -> Tree {
+        let name = self.tcx.item_name(def_id);
+
+        match &*name.as_str() {
+            "copy_nonoverlapping" => {
+                let copied_type = substs.type_at(0);
+                let element_size = self.convert_type(copied_type).get_type_size_bytes();
+                let all_size = Tree::new2(
+                    TreeCode::MultExpr,
+                    USIZE_KIND.into(),
+                    // TODO: nop_expr?
+                    element_size,
+                    converted_args[2],
+                );
+
+                Tree::new_call_expr(
+                    UNKNOWN_LOCATION,
+                    TreeIndex::VoidType.into(),
+                    Tree::new_addr_expr(BuiltinFunction::Memcpy.into()),
+                    // src and dst are swapped here
+                    &[converted_args[1], converted_args[0], all_size],
+                )
+            }
+
+            "offset" => {
+                let ptr = converted_args[0];
+                // gcc wants a usize instead of an isize
+                let offset =
+                    Tree::new1(TreeCode::ConvertExpr, USIZE_KIND.into(), converted_args[1]);
+                Tree::new2(TreeCode::PointerPlusExpr, ptr.get_type(), ptr, offset)
+            }
+
+            "size_of" => {
+                let of_type = substs.type_at(0);
+                self.convert_type(of_type).get_type_size_bytes()
+            }
+
+            _ => todo!("rust intrinsic {:?}", name),
+        }
+    }
+
+    fn convert_call_expr(
+        &mut self,
+        func: &Operand<'tcx>,
+        args: &[Operand<'tcx>],
+        call_expr_type: Tree,
+    ) -> Tree {
+        let converted_args = args
+            .into_iter()
+            .map(|arg| self.convert_operand(arg))
+            .collect::<Vec<_>>();
+
+        let func_ty = func.ty(&self.body.local_decls, self.tcx);
+        if let TyKind::FnDef(def_id, substs) = func_ty.kind {
+            let fn_sig = func_ty.fn_sig(self.tcx);
+            if fn_sig.abi() == Abi::RustIntrinsic {
+                return self.convert_rust_intrinsic(
+                    def_id,
+                    substs,
+                    args,
+                    &converted_args,
+                    call_expr_type,
+                );
+            }
+        }
+
+        let func = self.convert_operand(func);
+
+        Tree::new_call_expr(
+            UNKNOWN_LOCATION,
+            call_expr_type,
+            Tree::new_addr_expr(func),
+            &converted_args,
+        )
+    }
+
     // TODO: The original terminator struct has cleanup and from_hir_call fields which should
     // maybe be used here.
     fn handle_call_terminator(
@@ -606,12 +709,6 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         args: &[Operand<'tcx>],
         destination: &Option<(Place<'tcx>, BasicBlock)>,
     ) {
-        let func = self.convert_operand(func);
-        let args = args
-            .into_iter()
-            .map(|arg| self.convert_operand(arg))
-            .collect::<Vec<_>>();
-
         let (call_expr_type, returns_void) = if let Some((place, _)) = destination {
             let place_ty = place.ty(&self.body.local_decls, self.tcx);
             if place_ty.variant_index.is_some() {
@@ -625,12 +722,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
             (TreeIndex::VoidType.into(), true)
         };
 
-        let call_expr = Tree::new_call_expr(
-            UNKNOWN_LOCATION,
-            call_expr_type,
-            Tree::new_addr_expr(func),
-            &args,
-        );
+        let call_expr = self.convert_call_expr(func, args, call_expr_type);
 
         if let Some((place, destination)) = destination {
             if returns_void {
