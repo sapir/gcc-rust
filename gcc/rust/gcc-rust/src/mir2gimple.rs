@@ -425,6 +425,14 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                             (*data).try_into().unwrap(),
                         ),
 
+                        Bool => {
+                            if *data != 0 {
+                                TreeIndex::BooleanTrue.into()
+                            } else {
+                                TreeIndex::BooleanFalse.into()
+                            }
+                        }
+
                         FnDef(def_id, substs) => {
                             let name = self.tcx.symbol_name(Instance::new(def_id, substs));
                             let name = name.name;
