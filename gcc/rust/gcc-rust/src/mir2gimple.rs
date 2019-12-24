@@ -598,6 +598,55 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         )
     }
 
+    // TODO: The original terminator struct has cleanup and from_hir_call fields which should
+    // maybe be used here.
+    fn handle_call_terminator(
+        &mut self,
+        func: &Operand<'tcx>,
+        args: &[Operand<'tcx>],
+        destination: &Option<(Place<'tcx>, BasicBlock)>,
+    ) {
+        let func = self.convert_operand(func);
+        let args = args
+            .into_iter()
+            .map(|arg| self.convert_operand(arg))
+            .collect::<Vec<_>>();
+
+        let (call_expr_type, returns_void) = if let Some((place, _)) = destination {
+            let place_ty = place.ty(&self.body.local_decls, self.tcx);
+            if place_ty.variant_index.is_some() {
+                unreachable!("call's return type is an enum variant");
+            }
+
+            let call_expr_type = self.convert_type(place_ty.ty);
+            let returns_void = place_ty.ty.is_unit();
+            (call_expr_type, returns_void)
+        } else {
+            (TreeIndex::VoidType.into(), true)
+        };
+
+        let call_expr = Tree::new_call_expr(
+            UNKNOWN_LOCATION,
+            call_expr_type,
+            Tree::new_addr_expr(func),
+            &args,
+        );
+
+        if let Some((place, destination)) = destination {
+            if returns_void {
+                self.stmt_list.push(call_expr);
+            } else {
+                let init_expr = Tree::new_init_expr(self.get_place(place), call_expr);
+                self.stmt_list.push(init_expr);
+            }
+
+            self.stmt_list.push(self.convert_goto(*destination));
+        } else {
+            self.stmt_list.push(call_expr);
+            self.stmt_list.push(self.convert_unreachable());
+        }
+    }
+
     fn convert_basic_block(&mut self, block_index: BasicBlock, block: &BasicBlockData<'tcx>) {
         println!("{:?}", block);
 
@@ -745,47 +794,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                 cleanup: _,
                 from_hir_call: _,
             } => {
-                let func = self.convert_operand(func);
-                let args = args
-                    .into_iter()
-                    .map(|arg| self.convert_operand(arg))
-                    .collect::<Vec<_>>();
-                // TODO: don't ignore cleanup
-                // TODO: how to use from_hir_call?
-
-                let (call_expr_type, returns_void) = if let Some((place, _)) = destination {
-                    let place_ty = place.ty(&self.body.local_decls, self.tcx);
-                    if place_ty.variant_index.is_some() {
-                        unreachable!("call's return type is an enum variant");
-                    }
-
-                    let call_expr_type = self.convert_type(place_ty.ty);
-                    let returns_void = place_ty.ty.is_unit();
-                    (call_expr_type, returns_void)
-                } else {
-                    (TreeIndex::VoidType.into(), true)
-                };
-
-                let call_expr = Tree::new_call_expr(
-                    UNKNOWN_LOCATION,
-                    call_expr_type,
-                    Tree::new_addr_expr(func),
-                    &args,
-                );
-
-                if let Some((place, destination)) = destination {
-                    if returns_void {
-                        self.stmt_list.push(call_expr);
-                    } else {
-                        let init_expr = Tree::new_init_expr(self.get_place(place), call_expr);
-                        self.stmt_list.push(init_expr);
-                    }
-
-                    self.stmt_list.push(self.convert_goto(*destination));
-                } else {
-                    self.stmt_list.push(call_expr);
-                    self.stmt_list.push(self.convert_unreachable());
-                }
+                self.handle_call_terminator(func, args, destination);
             }
 
             _ => unimplemented!("{:?}", terminator),
