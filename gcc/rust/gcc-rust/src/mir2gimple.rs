@@ -673,6 +673,20 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         let name = self.tcx.item_name(def_id);
 
         match &*name.as_str() {
+            "wrapping_add" => Tree::new2(
+                TreeCode::PlusExpr,
+                call_expr_type,
+                converted_args[0],
+                converted_args[1],
+            ),
+
+            "wrapping_sub" => Tree::new2(
+                TreeCode::MinusExpr,
+                call_expr_type,
+                converted_args[0],
+                converted_args[1],
+            ),
+
             "copy_nonoverlapping" => {
                 let copied_type = substs.type_at(0);
                 let element_size = self.convert_type(copied_type).get_type_size_bytes();
