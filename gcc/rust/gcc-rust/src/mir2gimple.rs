@@ -424,6 +424,10 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         def_id: DefId,
         substs: SubstsRef<'tcx>,
     ) -> Tree {
+        let Instance { def, substs } =
+            Instance::resolve_for_fn_ptr(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap();
+        let def_id = def.def_id();
+
         let fn_sig = fn_type.fn_sig(self.tcx);
         match fn_sig.abi() {
             // Call instruction conversion removes intrinsics, so RustIntrinsic shouldn't show up
