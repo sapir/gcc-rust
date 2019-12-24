@@ -52,7 +52,16 @@ impl<'tcx> TypeCache<'tcx> {
             &variant
                 .fields
                 .iter()
-                .map(|field| self.convert_type(field.ty(self.tcx, substs)))
+                .map(|field| {
+                    let ty = field.ty(self.tcx, substs);
+                    if ty.is_unit() {
+                        // void fields aren't allowed, so use a zero-length array of whatever
+                        // instead.
+                        Tree::new_array_type(IntegerTypeKind::Int.into(), 0)
+                    } else {
+                        self.convert_type(ty)
+                    }
+                })
                 .collect::<Vec<_>>(),
         )
     }
@@ -607,7 +616,21 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
 
                     let place = self.get_place(place);
                     let rvalue = self.convert_rvalue(rvalue);
-                    self.stmt_list.push(Tree::new_init_expr(place, rvalue));
+
+                    // Avoid reads from void and writes to void. But still evaluate both the place
+                    // and the rvalue, in case either of them somehow has side effects (is that
+                    // possible?). The assignment would actually work, too, except that ADT members
+                    // of type unit are converted to zero-length arrays instead of void, so
+                    // attempts to set them to a void value (or set a void place to their value)
+                    // trigger a type mismatch error.
+                    let place_is_void = place.get_type().get_code() == TreeCode::VoidType;
+                    let rvalue_is_void = rvalue.get_type().get_code() == TreeCode::VoidType;
+                    if !place_is_void && !rvalue_is_void {
+                        self.stmt_list.push(Tree::new_init_expr(place, rvalue));
+                    } else {
+                        self.stmt_list.push(place);
+                        self.stmt_list.push(rvalue);
+                    }
                 }
 
                 SetDiscriminant {
