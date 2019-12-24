@@ -200,6 +200,9 @@ impl<'tcx> TypeCache<'tcx> {
                 }
             }
 
+            // It never gets instantiated, so I think it shouldn't matter which type we use here.
+            Never => TreeIndex::VoidType.into(),
+
             _ => unimplemented!("type: {:?} ({:?})", ty, ty.kind),
         }
     }
