@@ -424,9 +424,22 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         def_id: DefId,
         substs: SubstsRef<'tcx>,
     ) -> Tree {
-        let Instance { def, substs } =
-            Instance::resolve_for_fn_ptr(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap();
-        let def_id = def.def_id();
+        // Resolve traits
+        let instance = Instance::resolve(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap();
+        // Normalize associated types
+        let fn_type = instance.ty(self.tcx);
+        let fn_type = self.tcx.subst_and_normalize_erasing_regions(
+            &rustc::ty::List::empty(),
+            ParamEnv::reveal_all(),
+            &fn_type,
+        );
+        // Update instance, def_id and substs with the results
+        let (def_id, substs) = if let TyKind::FnDef(def_id, substs) = fn_type.kind {
+            (def_id, substs)
+        } else {
+            unreachable!()
+        };
+        let instance = Instance::new(def_id, substs);
 
         let fn_sig = fn_type.fn_sig(self.tcx);
         match fn_sig.abi() {
@@ -439,7 +452,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
             _ => {}
         }
 
-        let name = self.tcx.symbol_name(Instance::new(def_id, substs));
+        let name = self.tcx.symbol_name(instance);
         let name = name.name;
         let fn_type = self.convert_type(fn_type);
         // TODO: move next line into Function::new
