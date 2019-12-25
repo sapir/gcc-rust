@@ -476,7 +476,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                 let lit = &c.literal;
 
                 match &lit.val {
-                    Value(ConstValue::Scalar(Scalar::Raw { data, size: _ })) => match lit.ty.kind {
+                    Value(ConstValue::Scalar(Scalar::Raw { data, size })) => match lit.ty.kind {
                         Int(_) | Uint(_) => Tree::new_int_constant(
                             self.convert_type(lit.ty),
                             // TODO: this is incorrect on big-endian architectures; data should be
@@ -495,6 +495,18 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                         FnDef(def_id, substs) => self.convert_fn_constant(lit.ty, def_id, substs),
 
                         Tuple(substs) if substs.is_empty() => TreeIndex::Void.into(),
+
+                        Adt(adt_def, _substs) if adt_def.adt_kind() == AdtKind::Struct => {
+                            assert_eq!(*size, 0);
+                            let type_ = self.convert_type(lit.ty);
+                            let constructor = Tree::new_record_constructor(
+                                type_,
+                                // no fields, it's a ZST
+                                &[],
+                                &[],
+                            );
+                            Tree::new_compound_literal_expr(type_, constructor, self.fn_decl.0)
+                        }
 
                         _ => unimplemented!(
                             "const, ty.kind={:?}, ty={:?}, val={:?}",
