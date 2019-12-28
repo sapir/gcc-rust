@@ -40,7 +40,7 @@ $(RUST_LIB_BUILD_PATH): $(RUST_SRCS)
 	(cd $(RUST_SRC_DIR); \
 	  cargo rustc -- -C link-args="-Wl,-rpath,$(RUST_SYSROOT)/lib")
 
-rust1$(exeext): attribs.o $(rust1_OBJS) $(BACKEND) $(LIBDEPS)
+rust1$(exeext): attribs.o $(rust1_OBJS) $(BACKEND) $(LIBDEPS) | $(RUST_LIB_BUILD_PATH)
 	+$(LLINKER) $(ALL_LINKERFLAGS) $(LDFLAGS) -o $@ \
 		  attribs.o $(rust1_OBJS) $(BACKEND) $(LIBS) $(BACKENDLIBS) \
 		  -L$(RUST_BUILD_DIR) -l$(RUST_LIB_NAME) \
