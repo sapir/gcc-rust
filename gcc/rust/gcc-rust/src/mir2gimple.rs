@@ -13,8 +13,8 @@ use rustc::{
         self,
         adjustment::PointerCast,
         subst::{Subst, SubstsRef},
-        AdtKind, ConstKind, Instance, ParamEnv, PolyFnSig, Ty, TyCtxt, TyKind, TypeAndMut,
-        VariantDef,
+        AdtKind, Const, ConstKind, Instance, ParamEnv, PolyFnSig, Ty, TyCtxt, TyKind, TyS,
+        TypeAndMut, VariantDef,
     },
 };
 use rustc_interface::Queries;
@@ -662,6 +662,21 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         Tree::new_record_field_ref(place, 0)
     }
 
+    fn make_slice(&mut self, converted_slice_type: Tree, ptr_expr: Tree, length: u64) -> Tree {
+        let constructor = Tree::new_record_constructor(
+            converted_slice_type,
+            &[
+                converted_slice_type.get_record_type_field_decl(0),
+                converted_slice_type.get_record_type_field_decl(1),
+            ],
+            &[
+                ptr_expr,
+                Tree::new_int_constant(USIZE_KIND, length.try_into().unwrap()),
+            ],
+        );
+        Tree::new_compound_literal_expr(converted_slice_type, constructor, self.fn_decl.0)
+    }
+
     fn convert_rvalue(&mut self, rv: &Rvalue<'tcx>) -> Tree {
         use Rvalue::*;
 
@@ -762,6 +777,52 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                         } else {
                             unreachable!()
                         }
+                    }
+
+                    Pointer(Unsize) => {
+                        let old_ty = operand.ty(&self.body.local_decls, self.tcx);
+
+                        if let (
+                            TyKind::Ref(
+                                _,
+                                TyS {
+                                    kind:
+                                        TyKind::Array(
+                                            array_element_type,
+                                            Const {
+                                                val:
+                                                    ConstKind::Value(ConstValue::Scalar(
+                                                        array_length_scalar,
+                                                    )),
+                                                ..
+                                            },
+                                        ),
+                                    ..
+                                },
+                                _,
+                            ),
+                            TyKind::Ref(
+                                _,
+                                TyS {
+                                    kind: TyKind::Slice(slice_element_type),
+                                    ..
+                                },
+                                _,
+                            ),
+                        ) = (&old_ty.kind, &new_ty.kind)
+                        {
+                            if array_element_type == slice_element_type {
+                                let ptr = Tree::new_addr_expr(self.convert_operand(operand));
+                                let slice_type = self.convert_type(new_ty);
+                                return self.make_slice(
+                                    slice_type,
+                                    ptr,
+                                    array_length_scalar.to_u64().unwrap(),
+                                );
+                            }
+                        }
+
+                        unimplemented!("Pointer(Unsize) cast of {:?} to {:?}", old_ty, new_ty);
                     }
 
                     _ => unimplemented!("cast kind {:?} in {:?}", cast_kind, rv),
