@@ -687,6 +687,20 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                 converted_args[1],
             ),
 
+            // Convert pointer to isize, do the math, then convert back.
+            // TODO: The whole point of this intrinsic is not to do the conversion, is it really
+            // necessary?
+            "arith_offset" => Tree::new1(
+                TreeCode::NopExpr,
+                call_expr_type,
+                Tree::new2(
+                    TreeCode::PlusExpr,
+                    ISIZE_KIND.into(),
+                    Tree::new1(TreeCode::NopExpr, ISIZE_KIND.into(), converted_args[0]),
+                    converted_args[1],
+                ),
+            ),
+
             "copy_nonoverlapping" => {
                 let copied_type = substs.type_at(0);
                 let element_size = self.convert_type(copied_type).get_type_size_bytes();
