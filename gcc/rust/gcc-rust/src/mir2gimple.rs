@@ -275,17 +275,8 @@ impl<'tcx> TypeCache<'tcx> {
                 tt
             }
 
-            RawPtr(TypeAndMut { ty, mutbl: _ }) => {
-                // TODO: mutability
-                Tree::new_pointer_type(self.convert_type(ty))
-            }
-
-            FnDef(..) => Self::make_zst(),
-
-            FnPtr(sig) => Tree::new_pointer_type(self.convert_fn_sig(sig).into_function_type()),
-
-            Ref(_region, ty, _mutbl) => {
-                // TODO: mutability
+            // TODO: mutability
+            RawPtr(TypeAndMut { ty, mutbl: _ }) | Ref(_, ty, _) => {
                 if let Slice(element_type) = ty.kind {
                     Self::convert_slice(self.convert_type(element_type))
                 } else if let Str = ty.kind {
@@ -294,6 +285,10 @@ impl<'tcx> TypeCache<'tcx> {
                     Tree::new_pointer_type(self.convert_type(ty))
                 }
             }
+
+            FnDef(..) => Self::make_zst(),
+
+            FnPtr(sig) => Tree::new_pointer_type(self.convert_fn_sig(sig).into_function_type()),
 
             Projection(_proj_ty) => unreachable!(concat!(
                 "Projection types should have been resolved previously by",
