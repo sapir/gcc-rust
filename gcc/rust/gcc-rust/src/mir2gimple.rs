@@ -72,6 +72,25 @@ impl<'tcx> TypeCache<'tcx> {
         )
     }
 
+    fn convert_closure_upvars_struct(
+        &mut self,
+        closure_ty: Ty<'tcx>,
+        def_id: DefId,
+        substs: SubstsRef<'tcx>,
+    ) -> Tree {
+        let mut record_ty = Tree::new_record_type(TreeCode::RecordType);
+        self.hashmap.insert(closure_ty, record_ty);
+
+        let upvar_tys = substs
+            .as_closure()
+            .upvar_tys(def_id, self.tcx)
+            .map(|ty| self.convert_type(ty))
+            .collect::<Vec<_>>();
+
+        record_ty.finish_record_type(DeclList::new(TreeCode::FieldDecl, &upvar_tys));
+        record_ty
+    }
+
     fn do_convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
         use TyKind::*;
 
@@ -203,6 +222,8 @@ impl<'tcx> TypeCache<'tcx> {
 
             // It never gets instantiated, so I think it shouldn't matter which type we use here.
             Never => TreeIndex::VoidType.into(),
+
+            Closure(def_id, substs) => self.convert_closure_upvars_struct(ty, def_id, substs),
 
             _ => unimplemented!("type: {:?} ({:?})", ty, ty.kind),
         }
