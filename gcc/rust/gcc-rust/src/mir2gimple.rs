@@ -967,7 +967,20 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                 self.handle_call_terminator(func, args, destination);
             }
 
-            _ => unimplemented!("{:?}", terminator),
+            DropAndReplace { .. }
+            | FalseEdges { .. }
+            | FalseUnwind { .. }
+            | GeneratorDrop
+            | Yield { .. } => {
+                // See:
+                // * https://github.com/sapir/gcc-rust/issues/4#issuecomment-568808850
+                // * https://github.com/sapir/gcc-rust/issues/6#issuecomment-568808572
+                // * https://github.com/rust-lang/rust/blob/a9c1c04e986dbf610be8cbe6a8107f90b4db61ce/src/librustc_codegen_ssa/mir/block.rs#L888
+                unreachable!(
+                    "{:?} should have been removed before codegen",
+                    terminator.kind
+                )
+            }
         }
     }
 
