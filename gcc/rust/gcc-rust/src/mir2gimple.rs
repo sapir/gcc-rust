@@ -734,6 +734,8 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                 self.convert_type(of_type).get_type_size_bytes()
             }
 
+            "unreachable" => self.convert_unreachable(),
+
             _ => todo!("rust intrinsic {:?}", name),
         }
     }
