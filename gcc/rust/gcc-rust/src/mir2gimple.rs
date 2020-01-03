@@ -267,6 +267,14 @@ impl<'tcx> TypeCache<'tcx> {
                 Tree::new_function_type(return_type, &arg_types)
             }
 
+            FnPtr(sig) => {
+                let ConvertedFnSig {
+                    return_type,
+                    arg_types,
+                } = self.convert_fn_sig(sig);
+                Tree::new_function_type(return_type, &arg_types)
+            }
+
             Ref(_region, ty, _mutbl) => {
                 // TODO: mutability
                 Tree::new_pointer_type(self.convert_type(ty))
