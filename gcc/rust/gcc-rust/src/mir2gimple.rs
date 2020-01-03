@@ -860,6 +860,8 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                 self.convert_fn_constant_to_ptr(def_id, substs)
             }
 
+            ty::FnPtr(_sig) => self.convert_operand(func),
+
             _ => todo!("function is of type {:?}", func_ty.kind),
         };
 
