@@ -708,6 +708,15 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                         self.convert_operand(operand),
                     ),
 
+                    Pointer(ReifyFnPointer) => {
+                        let fn_def = operand.ty(&self.body.local_decls, self.tcx);
+                        if let ty::FnDef(def_id, substs) = fn_def.kind {
+                            self.convert_fn_constant_to_ptr(def_id, substs)
+                        } else {
+                            unreachable!()
+                        }
+                    }
+
                     _ => unimplemented!("cast kind {:?} in {:?}", cast_kind, rv),
                 }
             }
