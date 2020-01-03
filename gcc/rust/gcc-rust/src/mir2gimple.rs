@@ -413,12 +413,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         component
     }
 
-    fn convert_fn_constant(
-        &mut self,
-        fn_type: Ty<'tcx>,
-        def_id: DefId,
-        substs: SubstsRef<'tcx>,
-    ) -> Tree {
+    fn convert_fn_constant(&mut self, def_id: DefId, substs: SubstsRef<'tcx>) -> Tree {
         // Resolve traits
         let instance = Instance::resolve(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap();
         // Normalize associated types
@@ -484,7 +479,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                             }
                         }
 
-                        FnDef(def_id, substs) => self.convert_fn_constant(lit.ty, def_id, substs),
+                        FnDef(def_id, substs) => self.convert_fn_constant(def_id, substs),
 
                         Tuple(substs) if substs.is_empty() => TreeIndex::Void.into(),
 
