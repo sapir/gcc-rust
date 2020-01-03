@@ -95,6 +95,12 @@ struct ConvertedFnSig {
     pub arg_types: Vec<Tree>,
 }
 
+impl ConvertedFnSig {
+    fn into_function_type(self) -> Tree {
+        Tree::new_function_type(self.return_type, &self.arg_types)
+    }
+}
+
 /// Cache the types so if we convert the same anonymous type twice, we get the exact same
 /// Tree object. Otherwise, we get errors about anonymous structs not being the same, even
 /// though they have the same fields.
@@ -263,21 +269,9 @@ impl<'tcx> TypeCache<'tcx> {
                 Tree::new_pointer_type(self.convert_type(ty))
             }
 
-            FnDef(..) => {
-                let ConvertedFnSig {
-                    return_type,
-                    arg_types,
-                } = self.convert_fn_sig(ty.fn_sig(self.tcx));
-                Tree::new_function_type(return_type, &arg_types)
-            }
+            FnDef(..) => Self::make_zst(),
 
-            FnPtr(sig) => {
-                let ConvertedFnSig {
-                    return_type,
-                    arg_types,
-                } = self.convert_fn_sig(sig);
-                Tree::new_function_type(return_type, &arg_types)
-            }
+            FnPtr(sig) => Tree::new_pointer_type(self.convert_fn_sig(sig).into_function_type()),
 
             Ref(_region, ty, _mutbl) => {
                 // TODO: mutability
@@ -517,7 +511,7 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         component
     }
 
-    fn convert_fn_constant(&mut self, def_id: DefId, substs: SubstsRef<'tcx>) -> Tree {
+    fn convert_fn_constant_to_ptr(&mut self, def_id: DefId, substs: SubstsRef<'tcx>) -> Tree {
         // Resolve traits
         let instance = Instance::resolve(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap();
         // Normalize associated types
@@ -548,10 +542,11 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
 
         let name = self.tcx.symbol_name(instance);
         let name = name.name;
-        let fn_type = self.convert_type(fn_type);
+        let fn_type = self.type_cache.convert_fn_sig(fn_sig).into_function_type();
         // TODO: move next line into Function::new
         let name = CString::new(&*name.as_str()).unwrap();
-        Function::new(&name, fn_type).0
+        let fn_decl = Function::new(&name, fn_type).0;
+        Tree::new_addr_expr(fn_decl)
     }
 
     fn convert_operand(&mut self, operand: &Operand<'tcx>) -> Tree {
@@ -582,8 +577,6 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                                 TreeIndex::BooleanFalse.into()
                             }
                         }
-
-                        FnDef(def_id, substs) => self.convert_fn_constant(def_id, substs),
 
                         Tuple(substs) if substs.is_empty() => TreeIndex::Void.into(),
 
@@ -851,27 +844,26 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
             .collect::<Vec<_>>();
 
         let func_ty = func.ty(&self.body.local_decls, self.tcx);
-        if let TyKind::FnDef(def_id, substs) = func_ty.kind {
-            let fn_sig = func_ty.fn_sig(self.tcx);
-            if fn_sig.abi() == Abi::RustIntrinsic {
-                return self.convert_rust_intrinsic(
-                    def_id,
-                    substs,
-                    args,
-                    &converted_args,
-                    call_expr_type,
-                );
+        let func = match func_ty.kind {
+            ty::FnDef(def_id, substs) => {
+                let fn_sig = func_ty.fn_sig(self.tcx);
+                if fn_sig.abi() == Abi::RustIntrinsic {
+                    return self.convert_rust_intrinsic(
+                        def_id,
+                        substs,
+                        args,
+                        &converted_args,
+                        call_expr_type,
+                    );
+                }
+
+                self.convert_fn_constant_to_ptr(def_id, substs)
             }
-        }
 
-        let func = self.convert_operand(func);
+            _ => todo!("function is of type {:?}", func_ty.kind),
+        };
 
-        Tree::new_call_expr(
-            UNKNOWN_LOCATION,
-            call_expr_type,
-            Tree::new_addr_expr(func),
-            &converted_args,
-        )
+        Tree::new_call_expr(UNKNOWN_LOCATION, call_expr_type, func, &converted_args)
     }
 
     // TODO: The original terminator struct has cleanup and from_hir_call fields which should
