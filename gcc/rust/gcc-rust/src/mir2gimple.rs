@@ -113,6 +113,11 @@ impl<'tcx> TypeCache<'tcx> {
         }
     }
 
+    fn make_zst() -> Tree {
+        // Use a zero-length array of whatever.
+        Tree::new_array_type(IntegerTypeKind::Int.into(), 0)
+    }
+
     fn convert_variant_fields(
         &mut self,
         variant: &VariantDef,
@@ -125,14 +130,9 @@ impl<'tcx> TypeCache<'tcx> {
                 .fields
                 .iter()
                 .map(|field| {
+                    // TODO: should be using the struct's layout here
                     let ty = field.ty(self.tcx, substs);
-                    if ty.is_unit() {
-                        // void fields aren't allowed, so use a zero-length array of whatever
-                        // instead.
-                        Tree::new_array_type(IntegerTypeKind::Int.into(), 0)
-                    } else {
-                        self.convert_type(ty)
-                    }
+                    self.convert_type(ty)
                 })
                 .collect::<Vec<_>>(),
         )
@@ -176,7 +176,11 @@ impl<'tcx> TypeCache<'tcx> {
 
             Tuple(substs) => {
                 if substs.is_empty() {
-                    TreeIndex::VoidType.into()
+                    // This is the unit type.
+                    // For function return types, convert_fn_return_type() converts it to void,
+                    // but in other contexts, we treat it like other ZSTs, so that it can be
+                    // instantiated.
+                    Self::make_zst()
                 } else {
                     let fields = DeclList::new(
                         TreeCode::FieldDecl,
@@ -320,13 +324,21 @@ impl<'tcx> TypeCache<'tcx> {
         *self.hashmap.entry(ty).or_insert(tree)
     }
 
+    fn convert_fn_return_type(&mut self, ty: Ty<'tcx>) -> Tree {
+        if ty.is_unit() {
+            TreeIndex::VoidType.into()
+        } else {
+            self.convert_type(ty)
+        }
+    }
+
     fn convert_fn_sig(&mut self, fn_sig: PolyFnSig<'tcx>) -> ConvertedFnSig {
         // TODO: fn_sig.c_variadic, fn_sig.abi
         let inputs_and_output = fn_sig.inputs_and_output();
         let inputs_and_output = self.tcx.erase_late_bound_regions(&inputs_and_output);
         let (return_type, arg_types) = inputs_and_output.split_last().expect("missing return type");
 
-        let return_type = self.convert_type(return_type);
+        let return_type = self.convert_fn_return_type(return_type);
         let arg_types = arg_types
             .into_iter()
             .map(|arg| self.convert_type(arg))
@@ -338,11 +350,7 @@ impl<'tcx> TypeCache<'tcx> {
         }
     }
 
-    fn make_function_return_type(&mut self, body: &Body<'tcx>) -> Tree {
-        self.convert_type(body.return_ty())
-    }
-
-    fn convert_decls<I>(&mut self, body: &Body<'tcx>, iter: I) -> Vec<Tree>
+    fn convert_local_decl_types<I>(&mut self, body: &Body<'tcx>, iter: I) -> Vec<Tree>
     where
         I: Iterator<Item = Local>,
     {
@@ -350,8 +358,8 @@ impl<'tcx> TypeCache<'tcx> {
             .collect()
     }
 
-    fn make_function_arg_types(&mut self, body: &Body<'tcx>) -> Vec<Tree> {
-        self.convert_decls(body, body.args_iter())
+    fn convert_fn_arg_types(&mut self, body: &Body<'tcx>) -> Vec<Tree> {
+        self.convert_local_decl_types(body, body.args_iter())
     }
 }
 
@@ -388,8 +396,8 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
             false
         };
 
-        let return_type = type_cache.make_function_return_type(&body);
-        let arg_types = type_cache.make_function_arg_types(&body);
+        let return_type = type_cache.convert_fn_return_type(body.return_ty());
+        let arg_types = type_cache.convert_fn_arg_types(&body);
         let fn_type = Tree::new_function_type(return_type, &arg_types);
 
         let name = CString::new(&*name.as_str()).unwrap();
@@ -407,7 +415,8 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         fn_decl.attach_parm_decls(&parm_decls);
 
         let vars = {
-            let mut var_types = type_cache.convert_decls(&body, body.vars_and_temps_iter());
+            let mut var_types =
+                type_cache.convert_local_decl_types(&body, body.vars_and_temps_iter());
             assert_eq!(
                 1 + arg_types.len() + var_types.len(),
                 body.local_decls.len()
