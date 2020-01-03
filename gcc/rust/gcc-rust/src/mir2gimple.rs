@@ -1,5 +1,6 @@
 use crate::gcc_api::*;
 use rustc::{
+    bug,
     hir::def_id::DefId,
     mir::{
         interpret::{ConstValue, Scalar},
@@ -8,6 +9,7 @@ use rustc::{
         Place, PlaceBase, ProjectionElem, Rvalue, StatementKind, TerminatorKind, UnOp,
     },
     ty::{
+        self,
         adjustment::PointerCast,
         subst::{Subst, SubstsRef},
         AdtKind, ConstKind, Instance, ParamEnv, PolyFnSig, Ty, TyCtxt, TyKind, TypeAndMut,
@@ -20,6 +22,70 @@ use rustc_target::spec::abi::Abi;
 use std::{collections::HashMap, convert::TryInto, ffi::CString};
 use syntax::ast::{IntTy, UintTy};
 use syntax_pos::symbol::Symbol;
+
+// Copied from https://github.com/bjorn3/rustc_codegen_cranelift/blob/7ff01a4d59779609992aad947264abcc64617917/src/abi/mod.rs#L15
+// Copied from https://github.com/rust-lang/rust/blob/c2f4c57296f0d929618baed0b0d6eb594abf01eb/src/librustc/ty/layout.rs#L2349
+fn fn_sig_for_fn_abi<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> PolyFnSig<'tcx> {
+    let ty = instance.ty(tcx);
+    match ty.kind {
+        ty::FnDef(..) |
+        // Shims currently have type FnPtr. Not sure this should remain.
+        ty::FnPtr(_) => {
+            let mut sig = ty.fn_sig(tcx);
+            if let ty::InstanceDef::VtableShim(..) = instance.def {
+                // Modify `fn(self, ...)` to `fn(self: *mut Self, ...)`.
+                sig = sig.map_bound(|mut sig| {
+                    let mut inputs_and_output = sig.inputs_and_output.to_vec();
+                    inputs_and_output[0] = tcx.mk_mut_ptr(inputs_and_output[0]);
+                    sig.inputs_and_output = tcx.intern_type_list(&inputs_and_output);
+                    sig
+                });
+            }
+            sig
+        }
+        ty::Closure(def_id, substs) => {
+            let sig = substs.as_closure().sig(def_id, tcx);
+
+            let env_ty = tcx.closure_env_ty(def_id, substs).unwrap();
+            sig.map_bound(|sig| tcx.mk_fn_sig(
+                std::iter::once(*env_ty.skip_binder()).chain(sig.inputs().iter().cloned()),
+                sig.output(),
+                sig.c_variadic,
+                sig.unsafety,
+                sig.abi
+            ))
+        }
+        ty::Generator(def_id, substs, _) => {
+            let sig = substs.as_generator().poly_sig(def_id, tcx);
+
+            let env_region = ty::ReLateBound(ty::INNERMOST, ty::BrEnv);
+            let env_ty = tcx.mk_mut_ref(tcx.mk_region(env_region), ty);
+
+            let pin_did = tcx.lang_items().pin_type().unwrap();
+            let pin_adt_ref = tcx.adt_def(pin_did);
+            let pin_substs = tcx.intern_substs(&[env_ty.into()]);
+            let env_ty = tcx.mk_adt(pin_adt_ref, pin_substs);
+
+            sig.map_bound(|sig| {
+                let state_did = tcx.lang_items().gen_state().unwrap();
+                let state_adt_ref = tcx.adt_def(state_did);
+                let state_substs = tcx.intern_substs(&[
+                    sig.yield_ty.into(),
+                    sig.return_ty.into(),
+                ]);
+                let ret_ty = tcx.mk_adt(state_adt_ref, state_substs);
+
+                tcx.mk_fn_sig(std::iter::once(env_ty),
+                    ret_ty,
+                    false,
+                    rustc::hir::Unsafety::Normal,
+                    rustc_target::spec::abi::Abi::Rust
+                )
+            })
+        }
+        _ => bug!("unexpected type {:?} in Instance::fn_sig", ty)
+    }
+}
 
 const USIZE_KIND: IntegerTypeKind = IntegerTypeKind::UnsignedLong;
 const ISIZE_KIND: IntegerTypeKind = IntegerTypeKind::Long;
@@ -445,14 +511,14 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
             &fn_type,
         );
         // Update instance, def_id and substs with the results
-        let (def_id, substs) = if let TyKind::FnDef(def_id, substs) = fn_type.kind {
-            (def_id, substs)
-        } else {
-            unreachable!()
+        let (def_id, substs) = match fn_type.kind {
+            TyKind::FnDef(def_id, substs) => (def_id, substs),
+            TyKind::Closure(def_id, substs) => (def_id, substs),
+            _ => unreachable!(),
         };
         let instance = Instance::new(def_id, substs);
 
-        let fn_sig = fn_type.fn_sig(self.tcx);
+        let fn_sig = fn_sig_for_fn_abi(self.tcx, instance);
         match fn_sig.abi() {
             // Call instruction conversion removes intrinsics, so RustIntrinsic shouldn't show up
             // at this point
