@@ -1128,8 +1128,14 @@ pub fn mir2gimple<'tcx>(queries: &'tcx Queries<'tcx>) {
                     let name = tcx.symbol_name(instance).name;
                     println!("name: {}", name);
 
-                    let mir = tcx.optimized_mir(instance.def_id());
-                    func_mir_to_gcc(tcx, name, instance, mir);
+                    let def_id = instance.def_id();
+                    if tcx.is_mir_available(def_id) {
+                        let mir = tcx.optimized_mir(def_id);
+                        func_mir_to_gcc(tcx, name, instance, mir);
+                    } else {
+                        // TODO: why?
+                        println!("MIR not available!");
+                    }
 
                     println!();
                 }
