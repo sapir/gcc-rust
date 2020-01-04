@@ -512,22 +512,18 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
     }
 
     fn convert_fn_constant_to_ptr(&mut self, def_id: DefId, substs: SubstsRef<'tcx>) -> Tree {
-        // Resolve traits
-        let instance = Instance::resolve(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap();
         // Normalize associated types
-        let fn_type = instance.ty(self.tcx);
-        let fn_type = self.tcx.subst_and_normalize_erasing_regions(
-            &rustc::ty::List::empty(),
-            ParamEnv::reveal_all(),
-            &fn_type,
-        );
-        // Update instance, def_id and substs with the results
-        let (def_id, substs) = match fn_type.kind {
-            TyKind::FnDef(def_id, substs) => (def_id, substs),
-            TyKind::Closure(def_id, substs) => (def_id, substs),
-            _ => unreachable!(),
+        // (instance.ty() calls tcx.subst_and_normalize_erasing_regions)
+        let fn_type = Instance::new(def_id, substs).ty(self.tcx);
+        // Resolve traits
+        let instance = {
+            let (def_id, substs) = match fn_type.kind {
+                TyKind::FnDef(def_id, substs) => (def_id, substs),
+                TyKind::Closure(def_id, substs) => (def_id, substs),
+                _ => unreachable!(),
+            };
+            Instance::resolve(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap()
         };
-        let instance = Instance::new(def_id, substs);
 
         let fn_sig = fn_sig_for_fn_abi(self.tcx, instance);
         match fn_sig.abi() {
