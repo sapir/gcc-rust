@@ -1,5 +1,6 @@
 use crate::gcc_api::*;
 use rustc::{
+    bug,
     hir::def_id::DefId,
     mir::{
         interpret::{ConstValue, Scalar},
@@ -8,6 +9,7 @@ use rustc::{
         Place, PlaceBase, ProjectionElem, Rvalue, StatementKind, TerminatorKind, UnOp,
     },
     ty::{
+        self,
         adjustment::PointerCast,
         subst::{Subst, SubstsRef},
         AdtKind, ConstKind, Instance, ParamEnv, PolyFnSig, Ty, TyCtxt, TyKind, TypeAndMut,
@@ -21,12 +23,82 @@ use std::{collections::HashMap, convert::TryInto, ffi::CString};
 use syntax::ast::{IntTy, UintTy};
 use syntax_pos::symbol::Symbol;
 
+// Copied from https://github.com/bjorn3/rustc_codegen_cranelift/blob/7ff01a4d59779609992aad947264abcc64617917/src/abi/mod.rs#L15
+// Copied from https://github.com/rust-lang/rust/blob/c2f4c57296f0d929618baed0b0d6eb594abf01eb/src/librustc/ty/layout.rs#L2349
+fn fn_sig_for_fn_abi<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> PolyFnSig<'tcx> {
+    let ty = instance.ty(tcx);
+    match ty.kind {
+        ty::FnDef(..) |
+        // Shims currently have type FnPtr. Not sure this should remain.
+        ty::FnPtr(_) => {
+            let mut sig = ty.fn_sig(tcx);
+            if let ty::InstanceDef::VtableShim(..) = instance.def {
+                // Modify `fn(self, ...)` to `fn(self: *mut Self, ...)`.
+                sig = sig.map_bound(|mut sig| {
+                    let mut inputs_and_output = sig.inputs_and_output.to_vec();
+                    inputs_and_output[0] = tcx.mk_mut_ptr(inputs_and_output[0]);
+                    sig.inputs_and_output = tcx.intern_type_list(&inputs_and_output);
+                    sig
+                });
+            }
+            sig
+        }
+        ty::Closure(def_id, substs) => {
+            let sig = substs.as_closure().sig(def_id, tcx);
+
+            let env_ty = tcx.closure_env_ty(def_id, substs).unwrap();
+            sig.map_bound(|sig| tcx.mk_fn_sig(
+                std::iter::once(*env_ty.skip_binder()).chain(sig.inputs().iter().cloned()),
+                sig.output(),
+                sig.c_variadic,
+                sig.unsafety,
+                sig.abi
+            ))
+        }
+        ty::Generator(def_id, substs, _) => {
+            let sig = substs.as_generator().poly_sig(def_id, tcx);
+
+            let env_region = ty::ReLateBound(ty::INNERMOST, ty::BrEnv);
+            let env_ty = tcx.mk_mut_ref(tcx.mk_region(env_region), ty);
+
+            let pin_did = tcx.lang_items().pin_type().unwrap();
+            let pin_adt_ref = tcx.adt_def(pin_did);
+            let pin_substs = tcx.intern_substs(&[env_ty.into()]);
+            let env_ty = tcx.mk_adt(pin_adt_ref, pin_substs);
+
+            sig.map_bound(|sig| {
+                let state_did = tcx.lang_items().gen_state().unwrap();
+                let state_adt_ref = tcx.adt_def(state_did);
+                let state_substs = tcx.intern_substs(&[
+                    sig.yield_ty.into(),
+                    sig.return_ty.into(),
+                ]);
+                let ret_ty = tcx.mk_adt(state_adt_ref, state_substs);
+
+                tcx.mk_fn_sig(std::iter::once(env_ty),
+                    ret_ty,
+                    false,
+                    rustc::hir::Unsafety::Normal,
+                    rustc_target::spec::abi::Abi::Rust
+                )
+            })
+        }
+        _ => bug!("unexpected type {:?} in Instance::fn_sig", ty)
+    }
+}
+
 const USIZE_KIND: IntegerTypeKind = IntegerTypeKind::UnsignedLong;
 const ISIZE_KIND: IntegerTypeKind = IntegerTypeKind::Long;
 
 struct ConvertedFnSig {
     pub return_type: Tree,
     pub arg_types: Vec<Tree>,
+}
+
+impl ConvertedFnSig {
+    fn into_function_type(self) -> Tree {
+        Tree::new_function_type(self.return_type, &self.arg_types)
+    }
 }
 
 /// Cache the types so if we convert the same anonymous type twice, we get the exact same
@@ -47,6 +119,11 @@ impl<'tcx> TypeCache<'tcx> {
         }
     }
 
+    fn make_zst() -> Tree {
+        // Use a zero-length array of whatever.
+        Tree::new_array_type(IntegerTypeKind::Int.into(), 0)
+    }
+
     fn convert_variant_fields(
         &mut self,
         variant: &VariantDef,
@@ -59,17 +136,31 @@ impl<'tcx> TypeCache<'tcx> {
                 .fields
                 .iter()
                 .map(|field| {
+                    // TODO: should be using the struct's layout here
                     let ty = field.ty(self.tcx, substs);
-                    if ty.is_unit() {
-                        // void fields aren't allowed, so use a zero-length array of whatever
-                        // instead.
-                        Tree::new_array_type(IntegerTypeKind::Int.into(), 0)
-                    } else {
-                        self.convert_type(ty)
-                    }
+                    self.convert_type(ty)
                 })
                 .collect::<Vec<_>>(),
         )
+    }
+
+    fn convert_closure_upvars_struct(
+        &mut self,
+        closure_ty: Ty<'tcx>,
+        def_id: DefId,
+        substs: SubstsRef<'tcx>,
+    ) -> Tree {
+        let mut record_ty = Tree::new_record_type(TreeCode::RecordType);
+        self.hashmap.insert(closure_ty, record_ty);
+
+        let upvar_tys = substs
+            .as_closure()
+            .upvar_tys(def_id, self.tcx)
+            .map(|ty| self.convert_type(ty))
+            .collect::<Vec<_>>();
+
+        record_ty.finish_record_type(DeclList::new(TreeCode::FieldDecl, &upvar_tys));
+        record_ty
     }
 
     fn do_convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
@@ -91,7 +182,11 @@ impl<'tcx> TypeCache<'tcx> {
 
             Tuple(substs) => {
                 if substs.is_empty() {
-                    TreeIndex::VoidType.into()
+                    // This is the unit type.
+                    // For function return types, convert_fn_return_type() converts it to void,
+                    // but in other contexts, we treat it like other ZSTs, so that it can be
+                    // instantiated.
+                    Self::make_zst()
                 } else {
                     let fields = DeclList::new(
                         TreeCode::FieldDecl,
@@ -174,13 +269,9 @@ impl<'tcx> TypeCache<'tcx> {
                 Tree::new_pointer_type(self.convert_type(ty))
             }
 
-            FnDef(..) => {
-                let ConvertedFnSig {
-                    return_type,
-                    arg_types,
-                } = self.convert_fn_sig(ty.fn_sig(self.tcx));
-                Tree::new_function_type(return_type, &arg_types)
-            }
+            FnDef(..) => Self::make_zst(),
+
+            FnPtr(sig) => Tree::new_pointer_type(self.convert_fn_sig(sig).into_function_type()),
 
             Ref(_region, ty, _mutbl) => {
                 // TODO: mutability
@@ -204,6 +295,8 @@ impl<'tcx> TypeCache<'tcx> {
             // It never gets instantiated, so I think it shouldn't matter which type we use here.
             Never => TreeIndex::VoidType.into(),
 
+            Closure(def_id, substs) => self.convert_closure_upvars_struct(ty, def_id, substs),
+
             _ => unimplemented!("type: {:?} ({:?})", ty, ty.kind),
         }
     }
@@ -225,13 +318,21 @@ impl<'tcx> TypeCache<'tcx> {
         *self.hashmap.entry(ty).or_insert(tree)
     }
 
+    fn convert_fn_return_type(&mut self, ty: Ty<'tcx>) -> Tree {
+        if ty.is_unit() {
+            TreeIndex::VoidType.into()
+        } else {
+            self.convert_type(ty)
+        }
+    }
+
     fn convert_fn_sig(&mut self, fn_sig: PolyFnSig<'tcx>) -> ConvertedFnSig {
         // TODO: fn_sig.c_variadic, fn_sig.abi
         let inputs_and_output = fn_sig.inputs_and_output();
         let inputs_and_output = self.tcx.erase_late_bound_regions(&inputs_and_output);
         let (return_type, arg_types) = inputs_and_output.split_last().expect("missing return type");
 
-        let return_type = self.convert_type(return_type);
+        let return_type = self.convert_fn_return_type(return_type);
         let arg_types = arg_types
             .into_iter()
             .map(|arg| self.convert_type(arg))
@@ -243,11 +344,7 @@ impl<'tcx> TypeCache<'tcx> {
         }
     }
 
-    fn make_function_return_type(&mut self, body: &Body<'tcx>) -> Tree {
-        self.convert_type(body.return_ty())
-    }
-
-    fn convert_decls<I>(&mut self, body: &Body<'tcx>, iter: I) -> Vec<Tree>
+    fn convert_local_decl_types<I>(&mut self, body: &Body<'tcx>, iter: I) -> Vec<Tree>
     where
         I: Iterator<Item = Local>,
     {
@@ -255,8 +352,8 @@ impl<'tcx> TypeCache<'tcx> {
             .collect()
     }
 
-    fn make_function_arg_types(&mut self, body: &Body<'tcx>) -> Vec<Tree> {
-        self.convert_decls(body, body.args_iter())
+    fn convert_fn_arg_types(&mut self, body: &Body<'tcx>) -> Vec<Tree> {
+        self.convert_local_decl_types(body, body.args_iter())
     }
 }
 
@@ -285,6 +382,10 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         instance: Instance<'tcx>,
         body: &'body Body<'tcx>,
     ) -> Self {
+        if body.spread_arg.is_some() {
+            todo!("MIR spread_arg in {}", name);
+        }
+
         let mut type_cache = TypeCache::new(tcx, instance.substs);
 
         let return_type_is_void = if let TyKind::Tuple(substs) = &body.return_ty().kind {
@@ -293,8 +394,8 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
             false
         };
 
-        let return_type = type_cache.make_function_return_type(&body);
-        let arg_types = type_cache.make_function_arg_types(&body);
+        let return_type = type_cache.convert_fn_return_type(body.return_ty());
+        let arg_types = type_cache.convert_fn_arg_types(&body);
         let fn_type = Tree::new_function_type(return_type, &arg_types);
 
         let name = CString::new(&*name.as_str()).unwrap();
@@ -312,7 +413,8 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         fn_decl.attach_parm_decls(&parm_decls);
 
         let vars = {
-            let mut var_types = type_cache.convert_decls(&body, body.vars_and_temps_iter());
+            let mut var_types =
+                type_cache.convert_local_decl_types(&body, body.vars_and_temps_iter());
             assert_eq!(
                 1 + arg_types.len() + var_types.len(),
                 body.local_decls.len()
@@ -413,30 +515,21 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         component
     }
 
-    fn convert_fn_constant(
-        &mut self,
-        fn_type: Ty<'tcx>,
-        def_id: DefId,
-        substs: SubstsRef<'tcx>,
-    ) -> Tree {
-        // Resolve traits
-        let instance = Instance::resolve(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap();
+    fn convert_fn_constant_to_ptr(&mut self, def_id: DefId, substs: SubstsRef<'tcx>) -> Tree {
         // Normalize associated types
-        let fn_type = instance.ty(self.tcx);
-        let fn_type = self.tcx.subst_and_normalize_erasing_regions(
-            &rustc::ty::List::empty(),
-            ParamEnv::reveal_all(),
-            &fn_type,
-        );
-        // Update instance, def_id and substs with the results
-        let (def_id, substs) = if let TyKind::FnDef(def_id, substs) = fn_type.kind {
-            (def_id, substs)
-        } else {
-            unreachable!()
+        // (instance.ty() calls tcx.subst_and_normalize_erasing_regions)
+        let fn_type = Instance::new(def_id, substs).ty(self.tcx);
+        // Resolve traits
+        let instance = {
+            let (def_id, substs) = match fn_type.kind {
+                TyKind::FnDef(def_id, substs) => (def_id, substs),
+                TyKind::Closure(def_id, substs) => (def_id, substs),
+                _ => unreachable!(),
+            };
+            Instance::resolve(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap()
         };
-        let instance = Instance::new(def_id, substs);
 
-        let fn_sig = fn_type.fn_sig(self.tcx);
+        let fn_sig = fn_sig_for_fn_abi(self.tcx, instance);
         match fn_sig.abi() {
             // Call instruction conversion removes intrinsics, so RustIntrinsic shouldn't show up
             // at this point
@@ -449,10 +542,18 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
 
         let name = self.tcx.symbol_name(instance);
         let name = name.name;
-        let fn_type = self.convert_type(fn_type);
+        let fn_type = self.type_cache.convert_fn_sig(fn_sig).into_function_type();
         // TODO: move next line into Function::new
         let name = CString::new(&*name.as_str()).unwrap();
-        Function::new(&name, fn_type).0
+        let fn_decl = Function::new(&name, fn_type).0;
+        Tree::new_addr_expr(fn_decl)
+    }
+
+    fn make_zst_literal(&mut self, array_type: Ty<'tcx>) -> Tree {
+        // TypeCache::make_zst() converts ZSTs to zero-length arrays, so construct an empty array
+        let array_type = self.convert_type(array_type);
+        let constructor = Tree::new_array_constructor(array_type, &[]);
+        Tree::new_compound_literal_expr(array_type, constructor, self.fn_decl.0)
     }
 
     fn convert_operand(&mut self, operand: &Operand<'tcx>) -> Tree {
@@ -484,8 +585,6 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                             }
                         }
 
-                        FnDef(def_id, substs) => self.convert_fn_constant(lit.ty, def_id, substs),
-
                         Tuple(substs) if substs.is_empty() => TreeIndex::Void.into(),
 
                         Adt(adt_def, _substs) if adt_def.adt_kind() == AdtKind::Struct => {
@@ -499,6 +598,8 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                             );
                             Tree::new_compound_literal_expr(type_, constructor, self.fn_decl.0)
                         }
+
+                        FnDef(..) => self.make_zst_literal(lit.ty),
 
                         _ => unimplemented!(
                             "const, ty.kind={:?}, ty={:?}, val={:?}",
@@ -615,6 +716,15 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                         self.convert_type(new_ty),
                         self.convert_operand(operand),
                     ),
+
+                    Pointer(ReifyFnPointer) => {
+                        let fn_def = operand.ty(&self.body.local_decls, self.tcx);
+                        if let ty::FnDef(def_id, substs) = fn_def.kind {
+                            self.convert_fn_constant_to_ptr(def_id, substs)
+                        } else {
+                            unreachable!()
+                        }
+                    }
 
                     _ => unimplemented!("cast kind {:?} in {:?}", cast_kind, rv),
                 }
@@ -752,27 +862,28 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
             .collect::<Vec<_>>();
 
         let func_ty = func.ty(&self.body.local_decls, self.tcx);
-        if let TyKind::FnDef(def_id, substs) = func_ty.kind {
-            let fn_sig = func_ty.fn_sig(self.tcx);
-            if fn_sig.abi() == Abi::RustIntrinsic {
-                return self.convert_rust_intrinsic(
-                    def_id,
-                    substs,
-                    args,
-                    &converted_args,
-                    call_expr_type,
-                );
+        let func = match func_ty.kind {
+            ty::FnDef(def_id, substs) => {
+                let fn_sig = func_ty.fn_sig(self.tcx);
+                if fn_sig.abi() == Abi::RustIntrinsic {
+                    return self.convert_rust_intrinsic(
+                        def_id,
+                        substs,
+                        args,
+                        &converted_args,
+                        call_expr_type,
+                    );
+                }
+
+                self.convert_fn_constant_to_ptr(def_id, substs)
             }
-        }
 
-        let func = self.convert_operand(func);
+            ty::FnPtr(_sig) => self.convert_operand(func),
 
-        Tree::new_call_expr(
-            UNKNOWN_LOCATION,
-            call_expr_type,
-            Tree::new_addr_expr(func),
-            &converted_args,
-        )
+            _ => todo!("function is of type {:?}", func_ty.kind),
+        };
+
+        Tree::new_call_expr(UNKNOWN_LOCATION, call_expr_type, func, &converted_args)
     }
 
     // TODO: The original terminator struct has cleanup and from_hir_call fields which should
@@ -1000,8 +1111,6 @@ fn func_mir_to_gcc<'tcx>(
     instance: Instance<'tcx>,
     body: &'tcx Body,
 ) {
-    println!("name: {}", name);
-
     let body = body.subst(tcx, instance.substs);
     let mut fn_conv = FunctionConversion::new(tcx, name, instance, &body);
 
@@ -1010,8 +1119,6 @@ fn func_mir_to_gcc<'tcx>(
     }
 
     fn_conv.finalize();
-
-    println!();
 }
 
 pub fn mir2gimple<'tcx>(queries: &'tcx Queries<'tcx>) {
@@ -1023,8 +1130,18 @@ pub fn mir2gimple<'tcx>(queries: &'tcx Queries<'tcx>) {
             match item {
                 MonoItem::Fn(instance) => {
                     let name = tcx.symbol_name(instance).name;
-                    let mir = tcx.optimized_mir(instance.def_id());
-                    func_mir_to_gcc(tcx, name, instance, mir);
+                    println!("name: {}", name);
+
+                    let def_id = instance.def_id();
+                    if tcx.is_mir_available(def_id) {
+                        let mir = tcx.optimized_mir(def_id);
+                        func_mir_to_gcc(tcx, name, instance, mir);
+                    } else {
+                        // TODO: why?
+                        println!("MIR not available!");
+                    }
+
+                    println!();
                 }
 
                 _ => unimplemented!("monoitem {:?}", item),
