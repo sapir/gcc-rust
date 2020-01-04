@@ -549,6 +549,13 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         Tree::new_addr_expr(fn_decl)
     }
 
+    fn make_zst_literal(&mut self, array_type: Ty<'tcx>) -> Tree {
+        // TypeCache::make_zst() converts ZSTs to zero-length arrays, so construct an empty array
+        let array_type = self.convert_type(array_type);
+        let constructor = Tree::new_array_constructor(array_type, &[]);
+        Tree::new_compound_literal_expr(array_type, constructor, self.fn_decl.0)
+    }
+
     fn convert_operand(&mut self, operand: &Operand<'tcx>) -> Tree {
         use ConstKind::*;
         use Operand::*;
@@ -591,6 +598,8 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
                             );
                             Tree::new_compound_literal_expr(type_, constructor, self.fn_decl.0)
                         }
+
+                        FnDef(..) => self.make_zst_literal(lit.ty),
 
                         _ => unimplemented!(
                             "const, ty.kind={:?}, ty={:?}, val={:?}",
