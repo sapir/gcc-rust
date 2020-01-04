@@ -1111,8 +1111,6 @@ fn func_mir_to_gcc<'tcx>(
     instance: Instance<'tcx>,
     body: &'tcx Body,
 ) {
-    println!("name: {}", name);
-
     let body = body.subst(tcx, instance.substs);
     let mut fn_conv = FunctionConversion::new(tcx, name, instance, &body);
 
@@ -1121,8 +1119,6 @@ fn func_mir_to_gcc<'tcx>(
     }
 
     fn_conv.finalize();
-
-    println!();
 }
 
 pub fn mir2gimple<'tcx>(queries: &'tcx Queries<'tcx>) {
@@ -1134,8 +1130,12 @@ pub fn mir2gimple<'tcx>(queries: &'tcx Queries<'tcx>) {
             match item {
                 MonoItem::Fn(instance) => {
                     let name = tcx.symbol_name(instance).name;
+                    println!("name: {}", name);
+
                     let mir = tcx.optimized_mir(instance.def_id());
                     func_mir_to_gcc(tcx, name, instance, mir);
+
+                    println!();
                 }
 
                 _ => unimplemented!("monoitem {:?}", item),
