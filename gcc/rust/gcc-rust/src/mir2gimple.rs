@@ -382,6 +382,10 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         instance: Instance<'tcx>,
         body: &'body Body<'tcx>,
     ) -> Self {
+        if body.spread_arg.is_some() {
+            todo!("MIR spread_arg in {}", name);
+        }
+
         let mut type_cache = TypeCache::new(tcx, instance.substs);
 
         let return_type_is_void = if let TyKind::Tuple(substs) = &body.return_ty().kind {
