@@ -88,8 +88,8 @@ fn fn_sig_for_fn_abi<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> PolyF
     }
 }
 
-const USIZE_KIND: IntegerTypeKind = IntegerTypeKind::UnsignedLong;
-const ISIZE_KIND: IntegerTypeKind = IntegerTypeKind::Long;
+const USIZE_KIND: SizeTypeKind = SizeTypeKind::UnsignedBytes;
+const ISIZE_KIND: SizeTypeKind = SizeTypeKind::SignedBytes;
 
 struct ConvertedFnSig {
     pub return_type: Tree,
@@ -179,17 +179,16 @@ impl<'tcx> TypeCache<'tcx> {
 
         match ty.kind {
             Bool => TreeIndex::BooleanType.into(),
-            // TODO: are these correct?
             Int(IntTy::Isize) => ISIZE_KIND.into(),
-            Int(IntTy::I8) => IntegerTypeKind::SignedChar.into(),
-            Int(IntTy::I16) => IntegerTypeKind::Short.into(),
-            Int(IntTy::I32) => IntegerTypeKind::Int.into(),
-            Int(IntTy::I64) => IntegerTypeKind::LongLong.into(),
+            Int(IntTy::I8) => Tree::new_signed_int_type(8),
+            Int(IntTy::I16) => Tree::new_signed_int_type(16),
+            Int(IntTy::I32) => Tree::new_signed_int_type(32),
+            Int(IntTy::I64) => Tree::new_signed_int_type(64),
             Uint(UintTy::Usize) => USIZE_KIND.into(),
-            Uint(UintTy::U8) => IntegerTypeKind::UnsignedChar.into(),
-            Uint(UintTy::U16) => IntegerTypeKind::UnsignedShort.into(),
-            Uint(UintTy::U32) => IntegerTypeKind::UnsignedInt.into(),
-            Uint(UintTy::U64) => IntegerTypeKind::UnsignedLongLong.into(),
+            Uint(UintTy::U8) => Tree::new_unsigned_int_type(8),
+            Uint(UintTy::U16) => TreeIndex::Uint16Type.into(),
+            Uint(UintTy::U32) => TreeIndex::Uint32Type.into(),
+            Uint(UintTy::U64) => TreeIndex::Uint64Type.into(),
 
             Tuple(substs) => {
                 if substs.is_empty() {

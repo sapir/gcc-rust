@@ -168,6 +168,14 @@ extern "C" {
     return build_array_type_nelts(elt_type, nelts);
   }
 
+  tree _make_signed_type(size_t bits) {
+    return make_signed_type(bits);
+  }
+
+  tree _make_unsigned_type(size_t bits) {
+    return make_unsigned_type(bits);
+  }
+
   tree get_tree_type(tree t) {
     return TREE_TYPE(t);
   }
