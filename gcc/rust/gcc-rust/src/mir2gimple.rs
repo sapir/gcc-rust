@@ -189,6 +189,7 @@ impl<'tcx> TypeCache<'tcx> {
             Uint(UintTy::U16) => TreeIndex::Uint16Type.into(),
             Uint(UintTy::U32) => TreeIndex::Uint32Type.into(),
             Uint(UintTy::U64) => TreeIndex::Uint64Type.into(),
+            Char => TreeIndex::Uint32Type.into(),
 
             Tuple(substs) => {
                 if substs.is_empty() {
