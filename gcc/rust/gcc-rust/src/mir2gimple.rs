@@ -107,15 +107,13 @@ impl ConvertedFnSig {
 /// though they have the same fields.
 struct TypeCache<'tcx> {
     tcx: TyCtxt<'tcx>,
-    func_substs: SubstsRef<'tcx>,
     hashmap: HashMap<Ty<'tcx>, Tree>,
 }
 
 impl<'tcx> TypeCache<'tcx> {
-    fn new(tcx: TyCtxt<'tcx>, func_substs: SubstsRef<'tcx>) -> Self {
+    fn new(tcx: TyCtxt<'tcx>) -> Self {
         Self {
             tcx,
-            func_substs,
             hashmap: HashMap::new(),
         }
     }
@@ -314,12 +312,6 @@ impl<'tcx> TypeCache<'tcx> {
     }
 
     fn convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
-        let ty = self.tcx.subst_and_normalize_erasing_regions(
-            self.func_substs,
-            ParamEnv::reveal_all(),
-            &ty,
-        );
-
         if let Some(tree) = self.hashmap.get(ty) {
             return *tree;
         }
@@ -369,10 +361,25 @@ impl<'tcx> TypeCache<'tcx> {
     }
 }
 
-struct FunctionConversion<'tcx, 'body> {
+struct ConversionCtx<'tcx> {
     tcx: TyCtxt<'tcx>,
-    body: &'body Body<'tcx>,
     type_cache: TypeCache<'tcx>,
+}
+
+impl<'tcx> ConversionCtx<'tcx> {
+    pub fn new(tcx: TyCtxt<'tcx>) -> Self {
+        Self {
+            tcx,
+            type_cache: TypeCache::new(tcx),
+        }
+    }
+}
+
+struct FunctionConversion<'a, 'tcx, 'body> {
+    conv_ctx: &'a mut ConversionCtx<'tcx>,
+    tcx: TyCtxt<'tcx>,
+    instance: Instance<'tcx>,
+    body: &'body Body<'tcx>,
     fn_decl: Function,
     return_type_is_void: bool,
     res_decl: Tree,
@@ -387,9 +394,9 @@ struct FunctionConversion<'tcx, 'body> {
     stmt_list: StatementList,
 }
 
-impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
+impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     fn new(
-        tcx: TyCtxt<'tcx>,
+        conv_ctx: &'a mut ConversionCtx<'tcx>,
         name: Symbol,
         instance: Instance<'tcx>,
         body: &'body Body<'tcx>,
@@ -398,16 +405,14 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
             todo!("MIR spread_arg in {}", name);
         }
 
-        let mut type_cache = TypeCache::new(tcx, instance.substs);
-
         let return_type_is_void = if let TyKind::Tuple(substs) = &body.return_ty().kind {
             substs.is_empty()
         } else {
             false
         };
 
-        let return_type = type_cache.convert_fn_return_type(body.return_ty());
-        let arg_types = type_cache.convert_fn_arg_types(&body);
+        let return_type = conv_ctx.type_cache.convert_fn_return_type(body.return_ty());
+        let arg_types = conv_ctx.type_cache.convert_fn_arg_types(&body);
         let fn_type = Tree::new_function_type(return_type, &arg_types);
 
         let name = CString::new(&*name.as_str()).unwrap();
@@ -425,8 +430,9 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
         fn_decl.attach_parm_decls(&parm_decls);
 
         let vars = {
-            let mut var_types =
-                type_cache.convert_local_decl_types(&body, body.vars_and_temps_iter());
+            let mut var_types = conv_ctx
+                .type_cache
+                .convert_local_decl_types(&body, body.vars_and_temps_iter());
             assert_eq!(
                 1 + arg_types.len() + var_types.len(),
                 body.local_decls.len()
@@ -448,10 +454,13 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
 
         let stmt_list = StatementList::new();
 
+        let tcx = conv_ctx.tcx;
+
         Self {
+            conv_ctx,
             tcx,
+            instance,
             body,
-            type_cache,
             fn_decl,
             return_type_is_void,
             res_decl,
@@ -465,7 +474,13 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
     }
 
     fn convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
-        self.type_cache.convert_type(ty)
+        let ty = self.conv_ctx.tcx.subst_and_normalize_erasing_regions(
+            self.instance.substs,
+            ParamEnv::reveal_all(),
+            &ty,
+        );
+
+        self.conv_ctx.type_cache.convert_type(ty)
     }
 
     fn get_local(&self, local: Local) -> Tree {
@@ -580,7 +595,11 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
 
         let name = self.tcx.symbol_name(instance);
         let name = name.name;
-        let fn_type = self.type_cache.convert_fn_sig(fn_sig).into_function_type();
+        let fn_type = self
+            .conv_ctx
+            .type_cache
+            .convert_fn_sig(fn_sig)
+            .into_function_type();
         // TODO: move next line into Function::new
         let name = CString::new(&*name.as_str()).unwrap();
         let fn_decl = Function::new(&name, fn_type).0;
@@ -1216,13 +1235,13 @@ impl<'tcx, 'body> FunctionConversion<'tcx, 'body> {
 }
 
 fn func_mir_to_gcc<'tcx>(
-    tcx: TyCtxt<'tcx>,
+    conv_ctx: &mut ConversionCtx<'tcx>,
     name: Symbol,
     instance: Instance<'tcx>,
     body: &'tcx Body,
 ) {
-    let body = body.subst(tcx, instance.substs);
-    let mut fn_conv = FunctionConversion::new(tcx, name, instance, &body);
+    let body = body.subst(conv_ctx.tcx, instance.substs);
+    let mut fn_conv = FunctionConversion::new(conv_ctx, name, instance, &body);
 
     for (bb_idx, bb) in body.basic_blocks().iter_enumerated() {
         fn_conv.convert_basic_block(bb_idx, bb);
@@ -1233,6 +1252,8 @@ fn func_mir_to_gcc<'tcx>(
 
 pub fn mir2gimple<'tcx>(queries: &'tcx Queries<'tcx>) {
     queries.global_ctxt().unwrap().peek_mut().enter(|tcx| {
+        let mut conv_ctx = ConversionCtx::new(tcx);
+
         let (mono_items, _inlining_map) =
             collect_crate_mono_items(tcx, MonoItemCollectionMode::Eager);
 
@@ -1243,7 +1264,7 @@ pub fn mir2gimple<'tcx>(queries: &'tcx Queries<'tcx>) {
                     println!("name: {}", name);
 
                     let mir = tcx.instance_mir(instance.def);
-                    func_mir_to_gcc(tcx, name, instance, &mir);
+                    func_mir_to_gcc(&mut conv_ctx, name, instance, &mir);
 
                     println!();
                 }
