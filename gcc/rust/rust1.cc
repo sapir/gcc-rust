@@ -84,6 +84,8 @@ static bool rust_langhook_init(void) {
 extern "C" void compile_to_mir(const char **filenames, size_t num_filenames);
 
 extern "C" {
+  const char *crate_type = NULL;
+
   tree _alloc_stmt_list() {
     return alloc_stmt_list();
   }
@@ -398,6 +400,33 @@ static tree rust_langhook_pushdecl(tree decl ATTRIBUTE_UNUSED) {
 
 static tree rust_langhook_getdecls(void) { return NULL; }
 
+static unsigned int rust_langhook_option_lang_mask(void)
+{
+  return CL_Rust;
+}
+
+static bool rust_langhook_handle_option(
+    size_t scode,
+    const char *arg,
+    HOST_WIDE_INT value ATTRIBUTE_UNUSED,
+    int kind ATTRIBUTE_UNUSED,
+    location_t loc ATTRIBUTE_UNUSED,
+    const struct cl_option_handlers *handlers ATTRIBUTE_UNUSED)
+{
+  enum opt_code code = (enum opt_code)scode;
+
+  switch (code) {
+  case OPT_fcrate_type_:
+    crate_type = arg;
+    break;
+
+  default:
+    break;
+  }
+
+  return true;
+}
+
 #undef LANG_HOOKS_NAME
 #define LANG_HOOKS_NAME "Rust"
 
@@ -424,6 +453,12 @@ static tree rust_langhook_getdecls(void) { return NULL; }
 
 #undef LANG_HOOKS_GETDECLS
 #define LANG_HOOKS_GETDECLS rust_langhook_getdecls
+
+#undef LANG_HOOKS_OPTION_LANG_MASK
+#define LANG_HOOKS_OPTION_LANG_MASK rust_langhook_option_lang_mask
+
+#undef LANG_HOOKS_HANDLE_OPTION
+#define LANG_HOOKS_HANDLE_OPTION rust_langhook_handle_option
 
 struct lang_hooks lang_hooks = LANG_HOOKS_INITIALIZER;
 

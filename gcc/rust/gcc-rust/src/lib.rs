@@ -17,6 +17,7 @@ extern crate syntax_pos;
 mod gcc_api;
 mod mir2gimple;
 
+use gcc_api::get_crate_type;
 use rustc_driver::Compilation;
 use rustc_interface::{interface, Queries};
 use std::{ffi::CStr, os::raw::c_char};
@@ -24,6 +25,15 @@ use std::{ffi::CStr, os::raw::c_char};
 struct GccRustCompilerCalls;
 
 impl rustc_driver::Callbacks for GccRustCompilerCalls {
+    fn config<'tcx>(&mut self, config: &mut interface::Config) {
+        if config.opts.crate_types.len() != 1 {
+            panic!(
+                "Compiling with more than 1 crate type is unsupported (-fcrate-type={})",
+                get_crate_type().as_deref().unwrap_or("?")
+            );
+        }
+    }
+
     fn after_analysis<'tcx>(
         &mut self,
         compiler: &interface::Compiler,
@@ -95,8 +105,10 @@ pub extern "C" fn compile_to_mir(filenames: *const *const c_char, num_filenames:
         // }
     }
 
-    rustc_args.push("--crate-type".to_owned());
-    rustc_args.push("staticlib".to_owned());
+    if let Some(crate_type) = get_crate_type() {
+        rustc_args.push("--crate-type".to_owned());
+        rustc_args.push(crate_type);
+    }
 
     rustc_driver::install_ice_hook();
     let result = rustc_driver::catch_fatal_errors(move || {

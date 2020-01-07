@@ -1,0 +1,6 @@
+Language
+Rust
+
+fcrate-type=
+Rust Joined RejectNegative
+-fcrate-type=<bin|cdylib|...>	Pass --crate-type to rustc
