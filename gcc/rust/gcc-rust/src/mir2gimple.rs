@@ -13,8 +13,8 @@ use rustc::{
         self,
         adjustment::PointerCast,
         subst::{Subst, SubstsRef},
-        AdtKind, Const, ConstKind, Instance, ParamEnv, PolyFnSig, Ty, TyCtxt, TyKind, TyS,
-        TypeAndMut, VariantDef,
+        AdtKind, Const, ConstKind, Instance, ParamEnv, PolyExistentialTraitRef, PolyFnSig, Ty,
+        TyCtxt, TyKind, TyS, TypeAndMut, VariantDef,
     },
 };
 use rustc_interface::Queries;
@@ -172,6 +172,19 @@ impl<'tcx> TypeCache<'tcx> {
         record_ty
     }
 
+    fn convert_trait_object(&mut self) -> Tree {
+        // Represent a trait object as a record containing (*object, *vtable)
+        // where vtable is *void
+        let mut record_ty = Tree::new_record_type(TreeCode::RecordType);
+        let void_ptr_ty = Tree::new_pointer_type(TreeIndex::VoidType.into());
+        let void_ptr_ptr_ty = Tree::new_pointer_type(void_ptr_ty);
+        record_ty.finish_record_type(DeclList::new(
+            TreeCode::FieldDecl,
+            &[void_ptr_ty, void_ptr_ptr_ty],
+        ));
+        record_ty
+    }
+
     fn do_convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
         use TyKind::*;
 
@@ -279,6 +292,8 @@ impl<'tcx> TypeCache<'tcx> {
                     Self::convert_slice(self.convert_type(element_type))
                 } else if let Str = ty.kind {
                     Self::convert_slice(IntegerTypeKind::UnsignedChar.into())
+                } else if let Dynamic(..) = ty.kind {
+                    self.convert_trait_object()
                 } else {
                     Tree::new_pointer_type(self.convert_type(ty))
                 }
@@ -364,6 +379,8 @@ impl<'tcx> TypeCache<'tcx> {
 struct ConversionCtx<'tcx> {
     tcx: TyCtxt<'tcx>,
     type_cache: TypeCache<'tcx>,
+    vtables: HashMap<(Ty<'tcx>, Option<PolyExistentialTraitRef<'tcx>>), Tree>,
+    translation_unit_decl: Tree,
 }
 
 impl<'tcx> ConversionCtx<'tcx> {
@@ -371,6 +388,8 @@ impl<'tcx> ConversionCtx<'tcx> {
         Self {
             tcx,
             type_cache: TypeCache::new(tcx),
+            vtables: HashMap::new(),
+            translation_unit_decl: Tree::new_translation_unit_decl(NULL_TREE),
         }
     }
 
@@ -406,6 +425,94 @@ impl<'tcx> ConversionCtx<'tcx> {
         let name = CString::new(&*name.as_str()).unwrap();
         let fn_decl = Function::new(&name, fn_type).0;
         Tree::new_addr_expr(fn_decl)
+    }
+
+    fn convert_instance_to_fn_ptr(&mut self, instance: Instance<'tcx>) -> Tree {
+        self.convert_fn_constant_to_ptr(instance.def_id(), instance.substs)
+    }
+
+    // Based on librustc_codegen_ssa/meth.rs:get_vtable().
+    // See also rustc_codegen_cranelift/vtable.rs:build_vtable()
+    pub fn get_vtable(
+        &mut self,
+        ty: Ty<'tcx>,
+        trait_ref: Option<PolyExistentialTraitRef<'tcx>>,
+    ) -> Tree {
+        let key = (ty, trait_ref);
+        if let Some(&vtable) = self.vtables.get(&key) {
+            return vtable;
+        }
+
+        let layout = self.tcx.layout_of(ParamEnv::reveal_all().and(ty)).unwrap();
+        let mut components: Vec<_> = vec![
+            self.convert_instance_to_fn_ptr(Instance::resolve_drop_in_place(self.tcx, ty)),
+            Tree::new_int_constant(USIZE_KIND, layout.size.bytes().try_into().unwrap()),
+            Tree::new_int_constant(USIZE_KIND, layout.align.abi.bytes().try_into().unwrap()),
+        ];
+
+        let nullptr: Tree = TreeIndex::NullPointer.into();
+
+        let methods_root;
+        let methods = if let Some(trait_ref) = trait_ref {
+            methods_root = self
+                .tcx
+                .vtable_methods(trait_ref.with_self_ty(self.tcx, ty));
+            methods_root.iter()
+        } else {
+            (&[]).iter()
+        };
+
+        let methods = methods.map(|opt_mth| {
+            opt_mth.map_or(nullptr, |(def_id, substs)| {
+                self.convert_instance_to_fn_ptr(
+                    Instance::resolve_for_vtable(self.tcx, ParamEnv::reveal_all(), def_id, substs)
+                        .unwrap(),
+                )
+            })
+        });
+
+        components.extend(methods);
+
+        // Cast to an array of void*s
+        let void_ptr_ty = self.tcx.mk_nil_ptr();
+        let array_ty = self
+            .tcx
+            .mk_array(void_ptr_ty, components.len().try_into().unwrap());
+
+        let conv_void_ptr_ty = self.type_cache.convert_type(void_ptr_ty);
+        let conv_array_ty = self.type_cache.convert_type(array_ty);
+
+        let components = components
+            .into_iter()
+            .map(|comp| Tree::new1(TreeCode::ConvertExpr, conv_void_ptr_ty, comp))
+            .collect::<Vec<_>>();
+        // Why no need for a compound_literal_expr here? I don't know.
+        let constructor = Tree::new_array_constructor(conv_array_ty, &components);
+
+        // Naming based on rustc_codegen_cranelift, but using a valid identifier, and adding an
+        // index to ensure uniqueness.
+        let trait_ref_name =
+            trait_ref.map(|trait_ref| self.tcx.item_name(trait_ref.def_id()).as_str());
+        let trait_ref_name = trait_ref_name.as_deref().unwrap_or("");
+        let vtable_var_name = format!(
+            "vtable.{}.for.{}.{}",
+            trait_ref_name,
+            ty,
+            self.vtables.len()
+        );
+        let mut vtable_var = Tree::new_var_decl(
+            UNKNOWN_LOCATION,
+            Tree::new_identifier(vtable_var_name),
+            conv_array_ty,
+        );
+        vtable_var.set_static(true);
+        vtable_var.set_decl_context(self.translation_unit_decl);
+        vtable_var.set_decl_initial(constructor);
+        vtable_var.finalize_decl();
+
+        let vtable_ptr = Tree::new_addr_expr(vtable_var);
+        self.vtables.insert(key, vtable_ptr);
+        vtable_ptr
     }
 }
 
@@ -692,6 +799,20 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         Tree::new_compound_literal_expr(converted_slice_type, constructor, self.fn_decl.0)
     }
 
+    fn make_trait_object(&mut self, trait_obj_ty: Tree, obj_ptr: Tree, vtable_ptr: Tree) -> Tree {
+        let void_ptr_ty = Tree::new_pointer_type(TreeIndex::VoidType.into());
+        let obj_ptr = Tree::new1(TreeCode::ConvertExpr, void_ptr_ty, obj_ptr);
+        let constructor = Tree::new_record_constructor(
+            trait_obj_ty,
+            &[
+                trait_obj_ty.get_record_type_field_decl(0),
+                trait_obj_ty.get_record_type_field_decl(1),
+            ],
+            &[obj_ptr, vtable_ptr],
+        );
+        Tree::new_compound_literal_expr(trait_obj_ty, constructor, self.fn_decl.0)
+    }
+
     fn convert_rvalue(&mut self, rv: &Rvalue<'tcx>) -> Tree {
         use Rvalue::*;
 
@@ -835,6 +956,27 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                                     array_length_scalar.to_u64().unwrap(),
                                 );
                             }
+                        }
+
+                        if let (
+                            TyKind::Ref(_, old_ref_target_ty, _),
+                            TyKind::Ref(
+                                _,
+                                TyS {
+                                    kind: TyKind::Dynamic(dyn_preds, _region),
+                                    ..
+                                },
+                                _,
+                            ),
+                        ) = (&old_ty.kind, &new_ty.kind)
+                        {
+                            let obj_ptr = self.convert_operand(operand);
+
+                            let ext_trait_ref = dyn_preds.principal();
+                            let vtable = self.conv_ctx.get_vtable(old_ref_target_ty, ext_trait_ref);
+
+                            let trait_object_ty = self.convert_type(new_ty);
+                            return self.make_trait_object(trait_object_ty, obj_ptr, vtable);
                         }
 
                         unimplemented!("Pointer(Unsize) cast of {:?} to {:?}", old_ty, new_ty);

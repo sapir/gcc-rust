@@ -15,6 +15,7 @@
 #include "langhooks-def.h"
 #include "tree-iterator.h"
 #include "cgraph.h"
+#include "stringpool.h"
 #include "common/common-target.h"
 
 struct GTY(()) lang_type {
@@ -124,6 +125,9 @@ extern "C" {
   tree _build_decl(location_t loc, enum tree_code code, tree name, tree tt) {
     return build_decl(loc, code, name, tt);
   }
+  tree _build_translation_unit_decl(tree name) {
+    return build_translation_unit_decl(name);
+  }
   tree _build_string_literal(
       size_t len,
       const char *string,
@@ -176,6 +180,10 @@ extern "C" {
 
   tree _make_unsigned_type(size_t bits) {
     return make_unsigned_type(bits);
+  }
+
+  tree _get_identifier(const char *name) {
+    return get_identifier(name);
   }
 
   tree get_tree_type(tree t) {
@@ -267,6 +275,14 @@ extern "C" {
 
       prev_decl = decl;
     }
+  }
+
+  void set_decl_context(tree decl, tree context) {
+      DECL_CONTEXT(decl) = context;
+  }
+
+  void set_decl_initial(tree decl, tree value) {
+      DECL_INITIAL(decl) = value;
   }
 
   void set_decl_chain_context(

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use std::{
-    ffi::CStr,
+    ffi::{CStr, CString},
     os::raw::{c_char, c_uint, c_ulong},
     ptr::{null_mut, NonNull},
 };
@@ -2061,6 +2061,10 @@ impl Tree {
         unsafe { _build3(code, type_, arg0, arg1, arg2) }
     }
 
+    pub fn new_translation_unit_decl(name: Tree) -> Self {
+        unsafe { _build_translation_unit_decl(name) }
+    }
+
     pub fn new_init_expr(var: Tree, value: Tree) -> Self {
         Self::new2(TreeCode::InitExpr, TreeIndex::VoidType.into(), var, value)
     }
@@ -2099,6 +2103,10 @@ impl Tree {
 
     pub fn new_result_decl(loc: Location, type_: Tree) -> Self {
         unsafe { _build_decl(loc, TreeCode::ResultDecl, NULL_TREE, type_) }
+    }
+
+    pub fn new_var_decl(loc: Location, name: Tree, type_: Tree) -> Self {
+        unsafe { _build_decl(loc, TreeCode::VarDecl, name, type_) }
     }
 
     pub fn new_label_decl(loc: Location, context: Tree) -> Self {
@@ -2262,6 +2270,30 @@ impl Tree {
             set_tree_public(*self, value);
         }
     }
+
+    pub fn set_decl_context(&mut self, context: Tree) {
+        unsafe {
+            set_decl_context(*self, context);
+        }
+    }
+
+    pub fn set_decl_initial(&mut self, value: Tree) {
+        unsafe {
+            set_decl_initial(*self, value);
+        }
+    }
+
+    pub fn finalize_decl(&mut self) {
+        unsafe {
+            finalize_decl(*self);
+        }
+    }
+
+    pub fn new_identifier(name: impl Into<Vec<u8>>) -> Tree {
+        let name = CString::new(name).unwrap();
+
+        unsafe { _get_identifier(name.as_ptr()) }
+    }
 }
 
 extern "C" {
@@ -2289,6 +2321,7 @@ extern "C" {
         arg4: Tree,
     ) -> Tree;
     fn _build_decl(loc: Location, code: TreeCode, name: Tree, tt: Tree) -> Tree;
+    fn _build_translation_unit_decl(name: Tree) -> Tree;
     fn _build_string_literal(
         len: usize,
         string: *const c_char,
@@ -2315,6 +2348,7 @@ extern "C" {
     fn _build_array_type_nelts(elt_type: Tree, nelts: u64) -> Tree;
     fn _make_signed_type(bits: usize) -> Tree;
     fn _make_unsigned_type(bits: usize) -> Tree;
+    fn _get_identifier(name: *const c_char) -> Tree;
 
     fn build_constructor_from_field_array(
         type_: Tree,
@@ -2337,6 +2371,8 @@ extern "C" {
     fn set_tree_static(tree: Tree, value: bool);
     fn set_tree_public(tree: Tree, value: bool);
     fn make_decl_chain(code: TreeCode, num_decls: usize, types: *const Tree, decls: *mut Tree);
+    fn set_decl_context(decl: Tree, context: Tree);
+    fn set_decl_initial(decl: Tree, value: Tree);
     fn set_decl_chain_context(chain_head: Tree, context: Tree);
     fn finish_record_type(record_type: Tree, fields_chain_head: Tree) -> Tree;
     fn get_record_type_field_decl(record_type: Tree, index: usize) -> Tree;
