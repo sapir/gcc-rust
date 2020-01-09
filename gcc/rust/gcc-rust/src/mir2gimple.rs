@@ -393,20 +393,20 @@ impl<'tcx> ConversionCtx<'tcx> {
         }
     }
 
-    fn convert_fn_constant_to_ptr(&mut self, def_id: DefId, substs: SubstsRef<'tcx>) -> Tree {
+    fn resolve_fn(&mut self, def_id: DefId, substs: SubstsRef<'tcx>) -> Instance<'tcx> {
         // Normalize associated types
         // (instance.ty() calls tcx.subst_and_normalize_erasing_regions)
         let fn_type = Instance::new(def_id, substs).ty(self.tcx);
         // Resolve traits
-        let instance = {
-            let (def_id, substs) = match fn_type.kind {
-                TyKind::FnDef(def_id, substs) => (def_id, substs),
-                TyKind::Closure(def_id, substs) => (def_id, substs),
-                _ => unreachable!(),
-            };
-            Instance::resolve(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap()
+        let (def_id, substs) = match fn_type.kind {
+            TyKind::FnDef(def_id, substs) => (def_id, substs),
+            TyKind::Closure(def_id, substs) => (def_id, substs),
+            _ => unreachable!(),
         };
+        Instance::resolve(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap()
+    }
 
+    fn convert_instance_to_fn_ptr(&mut self, instance: Instance<'tcx>) -> Tree {
         let fn_sig = fn_sig_for_fn_abi(self.tcx, instance);
         match fn_sig.abi() {
             // Call instruction conversion removes intrinsics, so RustIntrinsic shouldn't show up
@@ -414,7 +414,7 @@ impl<'tcx> ConversionCtx<'tcx> {
             Abi::RustIntrinsic => {
                 unreachable!("RustIntrinsic {:?} used outside of Call, or Call didn't convert it")
             }
-            Abi::PlatformIntrinsic => unimplemented!("PlatformIntrinsic {:?}", fn_type),
+            Abi::PlatformIntrinsic => unimplemented!("PlatformIntrinsic {:?}", instance),
             _ => {}
         }
 
@@ -425,10 +425,6 @@ impl<'tcx> ConversionCtx<'tcx> {
         let name = CString::new(&*name.as_str()).unwrap();
         let fn_decl = Function::new(&name, fn_type).0;
         Tree::new_addr_expr(fn_decl)
-    }
-
-    fn convert_instance_to_fn_ptr(&mut self, instance: Instance<'tcx>) -> Tree {
-        self.convert_fn_constant_to_ptr(instance.def_id(), instance.substs)
     }
 
     // Based on librustc_codegen_ssa/meth.rs:get_vtable().
@@ -909,7 +905,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     Pointer(ReifyFnPointer) => {
                         let fn_def = operand.ty(&self.body.local_decls, self.tcx);
                         if let ty::FnDef(def_id, substs) = fn_def.kind {
-                            self.conv_ctx.convert_fn_constant_to_ptr(def_id, substs)
+                            let instance = self.conv_ctx.resolve_fn(def_id, substs);
+                            self.conv_ctx.convert_instance_to_fn_ptr(instance)
                         } else {
                             unreachable!()
                         }
@@ -1142,7 +1139,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     );
                 }
 
-                self.conv_ctx.convert_fn_constant_to_ptr(def_id, substs)
+                let instance = self.conv_ctx.resolve_fn(def_id, substs);
+                self.conv_ctx.convert_instance_to_fn_ptr(instance)
             }
 
             ty::FnPtr(_sig) => self.convert_operand(func),
