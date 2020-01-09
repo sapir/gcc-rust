@@ -238,6 +238,14 @@ extern "C" {
     return decl;
   }
 
+  void set_tree_static(tree t, bool value) {
+    TREE_STATIC(t) = value;
+  }
+
+  void set_tree_public(tree t, bool value) {
+    TREE_PUBLIC(t) = value;
+  }
+
   void make_decl_chain(
     enum tree_code code,
     size_t num_decls,

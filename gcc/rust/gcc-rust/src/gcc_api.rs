@@ -2250,6 +2250,18 @@ impl Tree {
             )
         }
     }
+
+    pub fn set_static(&mut self, value: bool) {
+        unsafe {
+            set_tree_static(*self, value);
+        }
+    }
+
+    pub fn set_public(&mut self, value: bool) {
+        unsafe {
+            set_tree_public(*self, value);
+        }
+    }
 }
 
 extern "C" {
@@ -2322,6 +2334,8 @@ extern "C" {
     fn get_type_size_bytes(tree: Tree) -> Tree;
     fn build_int_constant(inttype: Tree, value: i64) -> Tree;
     fn build_label_decl(loc: Location, context: Tree) -> Tree;
+    fn set_tree_static(tree: Tree, value: bool);
+    fn set_tree_public(tree: Tree, value: bool);
     fn make_decl_chain(code: TreeCode, num_decls: usize, types: *const Tree, decls: *mut Tree);
     fn set_decl_chain_context(chain_head: Tree, context: Tree);
     fn finish_record_type(record_type: Tree, fields_chain_head: Tree) -> Tree;
