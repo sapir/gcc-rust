@@ -915,6 +915,10 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     Pointer(Unsize) => {
                         let old_ty = operand.ty(&self.body.local_decls, self.tcx);
 
+                        if TyS::same_type(old_ty, new_ty) {
+                            return self.convert_operand(operand);
+                        }
+
                         if let (
                             TyKind::Ref(
                                 _,
