@@ -13,8 +13,8 @@ use rustc::{
         adjustment::PointerCast,
         layout::{Size, TyLayout},
         subst::{Subst, SubstsRef},
-        AdtKind, Const, ConstKind, Instance, InstanceDef, ParamEnv, PolyExistentialTraitRef,
-        PolyFnSig, Ty, TyCtxt, TyKind, TyS, TypeAndMut, VariantDef,
+        AdtDef, AdtKind, Const, ConstKind, Instance, InstanceDef, ParamEnv,
+        PolyExistentialTraitRef, PolyFnSig, Ty, TyCtxt, TyKind, TyS, TypeAndMut, VariantDef,
     },
 };
 use rustc_hir::def_id::DefId;
@@ -186,6 +186,65 @@ impl<'tcx> TypeCache<'tcx> {
         record_ty
     }
 
+    fn convert_adt(&mut self, ty: Ty<'tcx>, adt_def: &AdtDef, substs: SubstsRef<'tcx>) -> Tree {
+        // Cache type before creating fields to avoid infinite recursion for
+        // self-referential types.
+        let code = match adt_def.adt_kind() {
+            AdtKind::Struct | AdtKind::Enum => TreeCode::RecordType,
+            AdtKind::Union => TreeCode::UnionType,
+        };
+
+        let mut tt = Tree::new_record_type(code);
+        self.hashmap.insert(ty, tt);
+
+        // Now add the fields...
+        match adt_def.adt_kind() {
+            AdtKind::Struct | AdtKind::Union => {
+                let variant = adt_def.non_enum_variant();
+                tt.finish_record_type(self.convert_variant_fields(variant, substs));
+            }
+
+            AdtKind::Enum => {
+                // Pretend it looks like
+                // struct {
+                //     long discriminant;
+                //     union {
+                //         variant1;
+                //         variant2;
+                //         ...
+                //     }
+                // }
+                //
+                // (It seems rustc expects the discriminant to be an isize, which is
+                // currently converted into a long.)
+
+                let discr_ty = ISIZE_KIND.into();
+
+                let variants = adt_def
+                    .variants
+                    .iter()
+                    .map(|variant| {
+                        // afaik variants cannot currently be treated as a separate type,
+                        // so they can't be self-referential and we don't need to cache
+                        // them.
+                        let mut variant_ty = Tree::new_record_type(TreeCode::RecordType);
+                        variant_ty.finish_record_type(self.convert_variant_fields(variant, substs));
+                        variant_ty
+                    })
+                    .collect::<Vec<_>>();
+                let mut variant_union_ty = Tree::new_record_type(TreeCode::UnionType);
+                variant_union_ty.finish_record_type(DeclList::new(TreeCode::FieldDecl, &variants));
+
+                tt.finish_record_type(DeclList::new(
+                    TreeCode::FieldDecl,
+                    &[discr_ty, variant_union_ty],
+                ));
+            }
+        }
+
+        tt
+    }
+
     fn do_convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
         use TyKind::*;
 
@@ -225,67 +284,7 @@ impl<'tcx> TypeCache<'tcx> {
                 }
             }
 
-            Adt(adt_def, substs) => {
-                // Cache type before creating fields to avoid infinite recursion for
-                // self-referential types.
-                let code = match adt_def.adt_kind() {
-                    AdtKind::Struct | AdtKind::Enum => TreeCode::RecordType,
-                    AdtKind::Union => TreeCode::UnionType,
-                };
-
-                let mut tt = Tree::new_record_type(code);
-                self.hashmap.insert(ty, tt);
-
-                // Now add the fields...
-                match adt_def.adt_kind() {
-                    AdtKind::Struct | AdtKind::Union => {
-                        let variant = adt_def.non_enum_variant();
-                        tt.finish_record_type(self.convert_variant_fields(variant, substs));
-                    }
-
-                    AdtKind::Enum => {
-                        // Pretend it looks like
-                        // struct {
-                        //     long discriminant;
-                        //     union {
-                        //         variant1;
-                        //         variant2;
-                        //         ...
-                        //     }
-                        // }
-                        //
-                        // (It seems rustc expects the discriminant to be an isize, which is
-                        // currently converted into a long.)
-
-                        let discr_ty = ISIZE_KIND.into();
-
-                        let variants = adt_def
-                            .variants
-                            .iter()
-                            .map(|variant| {
-                                // afaik variants cannot currently be treated as a separate type,
-                                // so they can't be self-referential and we don't need to cache
-                                // them.
-                                let mut variant_ty = Tree::new_record_type(TreeCode::RecordType);
-                                variant_ty.finish_record_type(
-                                    self.convert_variant_fields(variant, substs),
-                                );
-                                variant_ty
-                            })
-                            .collect::<Vec<_>>();
-                        let mut variant_union_ty = Tree::new_record_type(TreeCode::UnionType);
-                        variant_union_ty
-                            .finish_record_type(DeclList::new(TreeCode::FieldDecl, &variants));
-
-                        tt.finish_record_type(DeclList::new(
-                            TreeCode::FieldDecl,
-                            &[discr_ty, variant_union_ty],
-                        ));
-                    }
-                }
-
-                tt
-            }
+            Adt(adt_def, substs) => self.convert_adt(ty, adt_def, substs),
 
             // TODO: mutability
             RawPtr(TypeAndMut { ty, mutbl: _ }) | Ref(_, ty, _) => {
