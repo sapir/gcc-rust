@@ -643,6 +643,23 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         }
     }
 
+    /// Do C-style pointer math - multiply the element index by the element type to get the offset
+    fn pointer_plus_element_index(pointer: Tree, element_index: Tree) -> Tree {
+        let element_type = pointer.get_type().get_pointer_type_deref_type();
+        let offset = Tree::new2(
+            TreeCode::MultExpr,
+            element_index.get_type(),
+            element_index,
+            element_type.get_type_size_bytes(),
+        );
+        Tree::new2(
+            TreeCode::PointerPlusExpr,
+            pointer.get_type(),
+            pointer,
+            offset,
+        )
+    }
+
     fn get_place(&mut self, place: &Place<'tcx>) -> Tree {
         let base = match &place.base {
             PlaceBase::Local(local) => self.get_local(*local),
@@ -684,7 +701,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                     if Self::is_place_ty_slice(component_ty) {
                         let ptr = Tree::new_record_field_ref(component, 0);
-                        let ptr = Tree::new2(TreeCode::PointerPlusExpr, ptr.get_type(), ptr, index);
+                        let ptr = Self::pointer_plus_element_index(ptr, index);
                         component = Tree::new_indirect_ref(ptr);
                     } else {
                         // an ArrayType's type field contains its element type
