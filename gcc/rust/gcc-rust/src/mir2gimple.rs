@@ -13,8 +13,8 @@ use rustc::{
         self,
         adjustment::PointerCast,
         subst::{Subst, SubstsRef},
-        AdtKind, Const, ConstKind, Instance, ParamEnv, PolyExistentialTraitRef, PolyFnSig, Ty,
-        TyCtxt, TyKind, TyS, TypeAndMut, VariantDef,
+        AdtKind, Const, ConstKind, Instance, InstanceDef, ParamEnv, PolyExistentialTraitRef,
+        PolyFnSig, Ty, TyCtxt, TyKind, TyS, TypeAndMut, VariantDef,
     },
 };
 use rustc_interface::Queries;
@@ -1161,7 +1161,25 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 }
 
                 let instance = self.conv_ctx.resolve_fn(def_id, substs);
-                self.conv_ctx.convert_instance_to_fn_ptr(instance)
+
+                if let InstanceDef::Virtual(_, index) = instance.def {
+                    // The virtual method call's first argument is the trait object.
+                    let trait_object = converted_args[0];
+                    let vtable_ptr = Tree::new_record_field_ref(trait_object, 1);
+
+                    let fn_ptr_ptr_ty = self.tcx.mk_imm_ptr(self.tcx.mk_fn_ptr(fn_sig));
+                    let fn_ptr_ptr_ty = self.convert_type(fn_ptr_ptr_ty);
+                    let vtable_ptr = Tree::new1(TreeCode::ConvertExpr, fn_ptr_ptr_ty, vtable_ptr);
+
+                    // Increase index by 3 to skip drop-in-place and 2 size fields.
+                    // This assumes that the size fields are the same size as function pointers,
+                    // so we can treat them as elements in a function pointer array.
+                    let index = Tree::new_int_constant(USIZE_KIND, (index + 3).try_into().unwrap());
+                    let fn_ptr_ptr = Self::pointer_plus_element_index(vtable_ptr, index);
+                    Tree::new_indirect_ref(fn_ptr_ptr)
+                } else {
+                    self.conv_ctx.convert_instance_to_fn_ptr(instance)
+                }
             }
 
             ty::FnPtr(_sig) => self.convert_operand(func),
