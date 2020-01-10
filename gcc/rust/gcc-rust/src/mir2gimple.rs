@@ -373,6 +373,40 @@ impl<'tcx> ConversionCtx<'tcx> {
             type_cache: TypeCache::new(tcx),
         }
     }
+
+    fn convert_fn_constant_to_ptr(&mut self, def_id: DefId, substs: SubstsRef<'tcx>) -> Tree {
+        // Normalize associated types
+        // (instance.ty() calls tcx.subst_and_normalize_erasing_regions)
+        let fn_type = Instance::new(def_id, substs).ty(self.tcx);
+        // Resolve traits
+        let instance = {
+            let (def_id, substs) = match fn_type.kind {
+                TyKind::FnDef(def_id, substs) => (def_id, substs),
+                TyKind::Closure(def_id, substs) => (def_id, substs),
+                _ => unreachable!(),
+            };
+            Instance::resolve(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap()
+        };
+
+        let fn_sig = fn_sig_for_fn_abi(self.tcx, instance);
+        match fn_sig.abi() {
+            // Call instruction conversion removes intrinsics, so RustIntrinsic shouldn't show up
+            // at this point
+            Abi::RustIntrinsic => {
+                unreachable!("RustIntrinsic {:?} used outside of Call, or Call didn't convert it")
+            }
+            Abi::PlatformIntrinsic => unimplemented!("PlatformIntrinsic {:?}", fn_type),
+            _ => {}
+        }
+
+        let name = self.tcx.symbol_name(instance);
+        let name = name.name;
+        let fn_type = self.type_cache.convert_fn_sig(fn_sig).into_function_type();
+        // TODO: move next line into Function::new
+        let name = CString::new(&*name.as_str()).unwrap();
+        let fn_decl = Function::new(&name, fn_type).0;
+        Tree::new_addr_expr(fn_decl)
+    }
 }
 
 struct FunctionConversion<'a, 'tcx, 'body> {
@@ -568,44 +602,6 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         component
     }
 
-    fn convert_fn_constant_to_ptr(&mut self, def_id: DefId, substs: SubstsRef<'tcx>) -> Tree {
-        // Normalize associated types
-        // (instance.ty() calls tcx.subst_and_normalize_erasing_regions)
-        let fn_type = Instance::new(def_id, substs).ty(self.tcx);
-        // Resolve traits
-        let instance = {
-            let (def_id, substs) = match fn_type.kind {
-                TyKind::FnDef(def_id, substs) => (def_id, substs),
-                TyKind::Closure(def_id, substs) => (def_id, substs),
-                _ => unreachable!(),
-            };
-            Instance::resolve(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap()
-        };
-
-        let fn_sig = fn_sig_for_fn_abi(self.tcx, instance);
-        match fn_sig.abi() {
-            // Call instruction conversion removes intrinsics, so RustIntrinsic shouldn't show up
-            // at this point
-            Abi::RustIntrinsic => {
-                unreachable!("RustIntrinsic {:?} used outside of Call, or Call didn't convert it")
-            }
-            Abi::PlatformIntrinsic => unimplemented!("PlatformIntrinsic {:?}", fn_type),
-            _ => {}
-        }
-
-        let name = self.tcx.symbol_name(instance);
-        let name = name.name;
-        let fn_type = self
-            .conv_ctx
-            .type_cache
-            .convert_fn_sig(fn_sig)
-            .into_function_type();
-        // TODO: move next line into Function::new
-        let name = CString::new(&*name.as_str()).unwrap();
-        let fn_decl = Function::new(&name, fn_type).0;
-        Tree::new_addr_expr(fn_decl)
-    }
-
     fn make_zst_literal(&mut self, array_type: Ty<'tcx>) -> Tree {
         // TypeCache::make_zst() converts ZSTs to zero-length arrays, so construct an empty array
         let array_type = self.convert_type(array_type);
@@ -792,7 +788,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     Pointer(ReifyFnPointer) => {
                         let fn_def = operand.ty(&self.body.local_decls, self.tcx);
                         if let ty::FnDef(def_id, substs) = fn_def.kind {
-                            self.convert_fn_constant_to_ptr(def_id, substs)
+                            self.conv_ctx.convert_fn_constant_to_ptr(def_id, substs)
                         } else {
                             unreachable!()
                         }
@@ -1004,7 +1000,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     );
                 }
 
-                self.convert_fn_constant_to_ptr(def_id, substs)
+                self.conv_ctx.convert_fn_constant_to_ptr(def_id, substs)
             }
 
             ty::FnPtr(_sig) => self.convert_operand(func),
