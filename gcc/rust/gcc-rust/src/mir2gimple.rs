@@ -11,6 +11,7 @@ use rustc::{
     ty::{
         self,
         adjustment::PointerCast,
+        layout::{Size, TyLayout},
         subst::{Subst, SubstsRef},
         AdtKind, Const, ConstKind, Instance, InstanceDef, ParamEnv, PolyExistentialTraitRef,
         PolyFnSig, Ty, TyCtxt, TyKind, TyS, TypeAndMut, VariantDef,
@@ -395,6 +396,10 @@ impl<'tcx> ConversionCtx<'tcx> {
         }
     }
 
+    pub fn layout_of(&self, ty: Ty<'tcx>) -> TyLayout<'tcx> {
+        self.tcx.layout_of(ParamEnv::reveal_all().and(ty)).unwrap()
+    }
+
     fn resolve_fn(&mut self, def_id: DefId, substs: SubstsRef<'tcx>) -> Instance<'tcx> {
         // Normalize associated types
         // (instance.monomorphic_ty() calls tcx.subst_and_normalize_erasing_regions)
@@ -441,7 +446,7 @@ impl<'tcx> ConversionCtx<'tcx> {
             return vtable;
         }
 
-        let layout = self.tcx.layout_of(ParamEnv::reveal_all().and(ty)).unwrap();
+        let layout = self.layout_of(ty);
         let mut components: Vec<_> = vec![
             self.convert_instance_to_fn_ptr(Instance::resolve_drop_in_place(self.tcx, ty)),
             Tree::new_int_constant(USIZE_KIND, layout.size.bytes().try_into().unwrap()),
@@ -741,48 +746,60 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             Move(place) => self.get_place(place),
 
             Constant(c) => {
-                let lit = &c.literal;
+                let lit = c.literal;
 
-                match &lit.val {
-                    Value(ConstValue::Scalar(Scalar::Raw { data, size })) => match lit.ty.kind {
-                        Int(_) | Uint(_) => Tree::new_int_constant(
-                            self.convert_type(lit.ty),
-                            // TODO: this is incorrect on big-endian architectures; data should be
-                            // treated as a byte array up to size bytes long.
-                            (*data).try_into().unwrap(),
-                        ),
+                match lit.val {
+                    Value(ConstValue::Scalar(scalar @ Scalar::Raw { .. })) => {
+                        let size = match scalar {
+                            Scalar::Raw { size, .. } => size,
+                            _ => unreachable!(),
+                        };
+                        let size = Size::from_bytes(size.into());
 
-                        Bool => {
-                            if *data != 0 {
-                                TreeIndex::BooleanTrue.into()
-                            } else {
-                                TreeIndex::BooleanFalse.into()
+                        match lit.ty.kind {
+                            Int(_) | Uint(_) => Tree::new_int_constant(
+                                self.convert_type(lit.ty),
+                                scalar.assert_bits(size).try_into().unwrap(),
+                            ),
+
+                            Bool => {
+                                if scalar.to_bool().unwrap() {
+                                    TreeIndex::BooleanTrue.into()
+                                } else {
+                                    TreeIndex::BooleanFalse.into()
+                                }
                             }
+
+                            Tuple(substs) if substs.is_empty() => TreeIndex::Void.into(),
+
+                            Adt(adt_def, _substs) if adt_def.adt_kind() == AdtKind::Struct => {
+                                let type_ = self.convert_type(lit.ty);
+
+                                let layout = self.conv_ctx.layout_of(lit.ty);
+                                let constructor = if layout.is_zst() {
+                                    Tree::new_record_constructor(
+                                        type_,
+                                        // no fields, it's a ZST
+                                        &[],
+                                        &[],
+                                    )
+                                } else {
+                                    todo!("non-ZST Adt literal")
+                                };
+
+                                Tree::new_compound_literal_expr(type_, constructor, self.fn_decl.0)
+                            }
+
+                            FnDef(..) => self.make_zst_literal(lit.ty),
+
+                            _ => unimplemented!(
+                                "const, ty.kind={:?}, ty={:?}, val={:?}",
+                                lit.ty.kind,
+                                lit.ty,
+                                lit.val
+                            ),
                         }
-
-                        Tuple(substs) if substs.is_empty() => TreeIndex::Void.into(),
-
-                        Adt(adt_def, _substs) if adt_def.adt_kind() == AdtKind::Struct => {
-                            assert_eq!(*size, 0);
-                            let type_ = self.convert_type(lit.ty);
-                            let constructor = Tree::new_record_constructor(
-                                type_,
-                                // no fields, it's a ZST
-                                &[],
-                                &[],
-                            );
-                            Tree::new_compound_literal_expr(type_, constructor, self.fn_decl.0)
-                        }
-
-                        FnDef(..) => self.make_zst_literal(lit.ty),
-
-                        _ => unimplemented!(
-                            "const, ty.kind={:?}, ty={:?}, val={:?}",
-                            lit.ty.kind,
-                            lit.ty,
-                            lit.val
-                        ),
-                    },
+                    }
 
                     _ => unimplemented!("literal {:?} {:?}", lit.ty, lit.val),
                 }
