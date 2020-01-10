@@ -745,7 +745,14 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             Move(place) => self.get_place(place),
 
             Constant(c) => {
-                let lit = c.literal;
+                let mut lit = c.literal;
+
+                if let Unevaluated(def_id, substs) = lit.val {
+                    lit = &self
+                        .tcx
+                        .const_eval_resolve(ParamEnv::reveal_all(), def_id, substs, None)
+                        .unwrap();
+                }
 
                 match lit.val {
                     Value(ConstValue::Scalar(scalar @ Scalar::Raw { .. })) => {
