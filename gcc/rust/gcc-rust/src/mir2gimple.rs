@@ -348,7 +348,9 @@ impl<'tcx> TypeCache<'tcx> {
     fn convert_fn_sig(&mut self, fn_sig: PolyFnSig<'tcx>) -> ConvertedFnSig {
         // TODO: fn_sig.c_variadic, fn_sig.abi
         let inputs_and_output = fn_sig.inputs_and_output();
-        let inputs_and_output = self.tcx.erase_late_bound_regions(&inputs_and_output);
+        let inputs_and_output = self
+            .tcx
+            .normalize_erasing_late_bound_regions(ParamEnv::reveal_all(), &inputs_and_output);
         let (return_type, arg_types) = inputs_and_output.split_last().expect("missing return type");
 
         let return_type = self.convert_fn_return_type(return_type);
