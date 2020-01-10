@@ -2206,13 +2206,16 @@ impl Tree {
         Self::new_component_ref(base_expr, field_decl)
     }
 
+    // Get the type pointed to by a pointer type tree
+    pub fn get_pointer_type_deref_type(&self) -> Self {
+        assert_eq!(self.get_code(), TreeCode::PointerType);
+        // Type of dereffed item is stored in POINTER_TYPE's TREE_TYPE
+        self.get_type()
+    }
+
     pub fn new_indirect_ref(base_expr: Tree) -> Self {
         let pointer_ty = base_expr.get_type();
-        assert_eq!(pointer_ty.get_code(), TreeCode::PointerType);
-
-        // Type of dereffed item is stored in POINTER_TYPE's TREE_TYPE
-        let deref_ty = pointer_ty.get_type();
-
+        let deref_ty = pointer_ty.get_pointer_type_deref_type();
         Self::new1(TreeCode::IndirectRef, deref_ty, base_expr)
     }
 
