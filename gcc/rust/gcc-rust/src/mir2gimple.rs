@@ -1,7 +1,6 @@
 use crate::gcc_api::*;
 use rustc::{
     bug,
-    hir::def_id::DefId,
     mir::{
         interpret::{ConstValue, Scalar},
         mono::MonoItem,
@@ -17,17 +16,18 @@ use rustc::{
         PolyFnSig, Ty, TyCtxt, TyKind, TyS, TypeAndMut, VariantDef,
     },
 };
+use rustc_hir::def_id::DefId;
 use rustc_interface::Queries;
 use rustc_mir::monomorphize::collector::{collect_crate_mono_items, MonoItemCollectionMode};
+use rustc_span::symbol::Symbol;
 use rustc_target::spec::abi::Abi;
 use std::{collections::HashMap, convert::TryInto, ffi::CString};
 use syntax::ast::{IntTy, UintTy};
-use syntax_pos::symbol::Symbol;
 
 // Copied from https://github.com/bjorn3/rustc_codegen_cranelift/blob/7ff01a4d59779609992aad947264abcc64617917/src/abi/mod.rs#L15
 // Copied from https://github.com/rust-lang/rust/blob/c2f4c57296f0d929618baed0b0d6eb594abf01eb/src/librustc/ty/layout.rs#L2349
 fn fn_sig_for_fn_abi<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> PolyFnSig<'tcx> {
-    let ty = instance.ty(tcx);
+    let ty = instance.monomorphic_ty(tcx);
     match ty.kind {
         ty::FnDef(..) |
         // Shims currently have type FnPtr. Not sure this should remain.
@@ -79,7 +79,7 @@ fn fn_sig_for_fn_abi<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> PolyF
                 tcx.mk_fn_sig(std::iter::once(env_ty),
                     ret_ty,
                     false,
-                    rustc::hir::Unsafety::Normal,
+                    rustc_hir::Unsafety::Normal,
                     rustc_target::spec::abi::Abi::Rust
                 )
             })
@@ -397,8 +397,8 @@ impl<'tcx> ConversionCtx<'tcx> {
 
     fn resolve_fn(&mut self, def_id: DefId, substs: SubstsRef<'tcx>) -> Instance<'tcx> {
         // Normalize associated types
-        // (instance.ty() calls tcx.subst_and_normalize_erasing_regions)
-        let fn_type = Instance::new(def_id, substs).ty(self.tcx);
+        // (instance.monomorphic_ty() calls tcx.subst_and_normalize_erasing_regions)
+        let fn_type = Instance::new(def_id, substs).monomorphic_ty(self.tcx);
         // Resolve traits
         let (def_id, substs) = match fn_type.kind {
             TyKind::FnDef(def_id, substs) => (def_id, substs),
