@@ -1999,7 +1999,7 @@ pub struct TreeNode {
 }
 
 #[repr(transparent)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Tree(*mut TreeNode);
 
 pub const NULL_TREE: Tree = Tree(null_mut());
@@ -2296,6 +2296,23 @@ impl Tree {
         let name = CString::new(name).unwrap();
 
         unsafe { _get_identifier(name.as_ptr()) }
+    }
+}
+
+impl std::fmt::Debug for Tree {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        if self.0.is_null() {
+            write!(f, "NULL_TREE")
+        } else {
+            write!(
+                f,
+                "Tree({:?}, code={:?}, type={:?})",
+                self.0,
+                self.get_code(),
+                // This is recursive but should end eventually with a NULL_TREE
+                self.get_type()
+            )
+        }
     }
 }
 
