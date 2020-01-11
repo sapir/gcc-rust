@@ -1228,7 +1228,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 unreachable!("call's return type is an enum variant");
             }
 
-            let call_expr_type = self.convert_type(place_ty.ty);
+            let call_expr_type = self.conv_ctx.type_cache.convert_fn_return_type(place_ty.ty);
             let returns_void = place_ty.ty.is_unit();
             (call_expr_type, returns_void)
         } else {
