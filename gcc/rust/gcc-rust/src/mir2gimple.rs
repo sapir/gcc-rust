@@ -1160,7 +1160,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         args: &[Operand<'tcx>],
         call_expr_type: Tree,
     ) -> Tree {
-        let converted_args = args
+        let mut converted_args = args
             .into_iter()
             .map(|arg| self.convert_operand(arg))
             .collect::<Vec<_>>();
@@ -1182,9 +1182,15 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 let instance = self.conv_ctx.resolve_fn(def_id, substs);
 
                 if let InstanceDef::Virtual(_, index) = instance.def {
-                    // The virtual method call's first argument is the trait object.
+                    // The virtual method call's first argument in the IR is the trait object.
                     let trait_object = converted_args[0];
+                    let obj_ptr = Tree::new_record_field_ref(trait_object, 0);
                     let vtable_ptr = Tree::new_record_field_ref(trait_object, 1);
+
+                    // The first argument should actually be the object pointer.
+                    converted_args[0] = obj_ptr;
+
+                    // Now find the function pointer in the vtable.
 
                     let fn_ptr_ptr_ty = self.tcx.mk_imm_ptr(self.tcx.mk_fn_ptr(fn_sig));
                     let fn_ptr_ptr_ty = self.convert_type(fn_ptr_ptr_ty);
