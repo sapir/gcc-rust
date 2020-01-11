@@ -735,6 +735,74 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         )
     }
 
+    fn convert_const(&mut self, mut const_: &Const<'tcx>) -> Tree {
+        use ConstKind::*;
+        use TyKind::*;
+
+        if let Unevaluated(def_id, substs) = const_.val {
+            const_ = &self
+                .tcx
+                .const_eval_resolve(ParamEnv::reveal_all(), def_id, substs, None)
+                .unwrap();
+        }
+
+        match const_.val {
+            Value(ConstValue::Scalar(scalar @ Scalar::Raw { .. })) => {
+                let size = match scalar {
+                    Scalar::Raw { size, .. } => size,
+                    _ => unreachable!(),
+                };
+                let size = Size::from_bytes(size.into());
+
+                match const_.ty.kind {
+                    Int(_) | Uint(_) => Tree::new_int_constant(
+                        self.convert_type(const_.ty),
+                        scalar.assert_bits(size).try_into().unwrap(),
+                    ),
+
+                    Bool => {
+                        if scalar.to_bool().unwrap() {
+                            TreeIndex::BooleanTrue.into()
+                        } else {
+                            TreeIndex::BooleanFalse.into()
+                        }
+                    }
+
+                    Tuple(substs) if substs.is_empty() => TreeIndex::Void.into(),
+
+                    Adt(adt_def, _substs) if adt_def.adt_kind() == AdtKind::Struct => {
+                        let type_ = self.convert_type(const_.ty);
+
+                        let layout = self.conv_ctx.layout_of(const_.ty);
+                        let constructor = if layout.is_zst() {
+                            Tree::new_record_constructor(
+                                type_,
+                                // no fields, it's a ZST
+                                &[],
+                                &[],
+                            )
+                        } else {
+                            todo!("non-ZST Adt literal")
+                        };
+
+                        Tree::new_compound_literal_expr(type_, constructor, self.fn_decl.0)
+                    }
+
+                    FnDef(..) => self.make_zst_literal(const_.ty),
+
+                    _ => unimplemented!(
+                        "const, ty.kind={:?}, ty={:?}, val={:?}",
+                        const_.ty.kind,
+                        const_.ty,
+                        const_.val
+                    ),
+                }
+            }
+
+            _ => unimplemented!("Const {:?} {:?}", const_.ty, const_.val),
+        }
+    }
+
     fn get_place(&mut self, place: &Place<'tcx>) -> Tree {
         let base = match &place.base {
             PlaceBase::Local(local) => self.get_local(*local),
@@ -805,80 +873,12 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     }
 
     fn convert_operand(&mut self, operand: &Operand<'tcx>) -> Tree {
-        use ConstKind::*;
         use Operand::*;
-        use TyKind::*;
 
         match operand {
             Copy(place) => self.get_place(place),
             Move(place) => self.get_place(place),
-
-            Constant(c) => {
-                let mut lit = c.literal;
-
-                if let Unevaluated(def_id, substs) = lit.val {
-                    lit = &self
-                        .tcx
-                        .const_eval_resolve(ParamEnv::reveal_all(), def_id, substs, None)
-                        .unwrap();
-                }
-
-                match lit.val {
-                    Value(ConstValue::Scalar(scalar @ Scalar::Raw { .. })) => {
-                        let size = match scalar {
-                            Scalar::Raw { size, .. } => size,
-                            _ => unreachable!(),
-                        };
-                        let size = Size::from_bytes(size.into());
-
-                        match lit.ty.kind {
-                            Int(_) | Uint(_) => Tree::new_int_constant(
-                                self.convert_type(lit.ty),
-                                scalar.assert_bits(size).try_into().unwrap(),
-                            ),
-
-                            Bool => {
-                                if scalar.to_bool().unwrap() {
-                                    TreeIndex::BooleanTrue.into()
-                                } else {
-                                    TreeIndex::BooleanFalse.into()
-                                }
-                            }
-
-                            Tuple(substs) if substs.is_empty() => TreeIndex::Void.into(),
-
-                            Adt(adt_def, _substs) if adt_def.adt_kind() == AdtKind::Struct => {
-                                let type_ = self.convert_type(lit.ty);
-
-                                let layout = self.conv_ctx.layout_of(lit.ty);
-                                let constructor = if layout.is_zst() {
-                                    Tree::new_record_constructor(
-                                        type_,
-                                        // no fields, it's a ZST
-                                        &[],
-                                        &[],
-                                    )
-                                } else {
-                                    todo!("non-ZST Adt literal")
-                                };
-
-                                Tree::new_compound_literal_expr(type_, constructor, self.fn_decl.0)
-                            }
-
-                            FnDef(..) => self.make_zst_literal(lit.ty),
-
-                            _ => unimplemented!(
-                                "const, ty.kind={:?}, ty={:?}, val={:?}",
-                                lit.ty.kind,
-                                lit.ty,
-                                lit.val
-                            ),
-                        }
-                    }
-
-                    _ => unimplemented!("literal {:?} {:?}", lit.ty, lit.val),
-                }
-            }
+            Constant(c) => self.convert_const(&c.literal),
         }
     }
 
