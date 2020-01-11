@@ -198,6 +198,10 @@ extern "C" {
     return TYPE_SIZE_UNIT(t);
   }
 
+  void set_type_name(tree tt, tree identifier) {
+    TYPE_NAME(tt) = identifier;
+  }
+
   tree build_constructor_from_field_array(
       tree type,
       size_t num_fields,

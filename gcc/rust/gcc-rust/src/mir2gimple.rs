@@ -333,7 +333,8 @@ impl<'tcx> TypeCache<'tcx> {
 
         // TODO: return a placeholder when called recursively!
         // do_convert_type can recursively call convert_type
-        let tree = self.do_convert_type(ty);
+        let mut tree = self.do_convert_type(ty);
+        tree.set_type_name(Tree::new_identifier(format!("{}", ty)));
         *self.hashmap.entry(ty).or_insert(tree)
     }
 
