@@ -434,6 +434,16 @@ impl<'tcx> ConversionCtx<'tcx> {
         Tree::new_addr_expr(fn_decl)
     }
 
+    fn make_vtable_name(
+        &self,
+        _ty: Ty<'tcx>,
+        _trait_ref: Option<PolyExistentialTraitRef<'tcx>>,
+        vtable_index: usize,
+    ) -> String {
+        // TODO: include mangled type and trait ref
+        format!(".vtable.{}", vtable_index)
+    }
+
     // Based on librustc_codegen_ssa/meth.rs:get_vtable().
     // See also rustc_codegen_cranelift/vtable.rs:build_vtable()
     pub fn get_vtable(
@@ -492,17 +502,7 @@ impl<'tcx> ConversionCtx<'tcx> {
         // Why no need for a compound_literal_expr here? I don't know.
         let constructor = Tree::new_array_constructor(conv_array_ty, &components);
 
-        // Naming based on rustc_codegen_cranelift, but using a valid identifier, and adding an
-        // index to ensure uniqueness.
-        let trait_ref_name =
-            trait_ref.map(|trait_ref| self.tcx.item_name(trait_ref.def_id()).as_str());
-        let trait_ref_name = trait_ref_name.as_deref().unwrap_or("");
-        let vtable_var_name = format!(
-            "vtable.{}.for.{}.{}",
-            trait_ref_name,
-            ty,
-            self.vtables.len()
-        );
+        let vtable_var_name = self.make_vtable_name(ty, trait_ref, self.vtables.len());
         let mut vtable_var = Tree::new_var_decl(
             UNKNOWN_LOCATION,
             Tree::new_identifier(vtable_var_name),
