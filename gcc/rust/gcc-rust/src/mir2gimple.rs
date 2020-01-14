@@ -1173,9 +1173,11 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             .collect::<Vec<_>>();
 
         let func_ty = func.ty(&self.body.local_decls, self.tcx);
+
+        let fn_sig;
         let func = match func_ty.kind {
             ty::FnDef(def_id, substs) => {
-                let fn_sig = func_ty.fn_sig(self.tcx);
+                fn_sig = func_ty.fn_sig(self.tcx);
                 if fn_sig.abi() == Abi::RustIntrinsic {
                     return self.convert_rust_intrinsic(
                         def_id,
@@ -1214,10 +1216,31 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 }
             }
 
-            ty::FnPtr(_sig) => self.convert_operand(func),
+            ty::FnPtr(sig) => {
+                fn_sig = sig;
+                self.convert_operand(func)
+            }
 
             _ => todo!("function is of type {:?}", func_ty.kind),
         };
+
+        // For RustCall, the last argument is a tuple, and each of its fields should be passed as
+        // a separate argument.
+        if fn_sig.abi() == rustc_target::spec::abi::Abi::RustCall {
+            let num_tupled_args = args
+                .last()
+                .unwrap()
+                .ty(&self.body.local_decls, self.tcx)
+                .tuple_fields()
+                .count();
+
+            let spread_arg = converted_args.pop().unwrap();
+            converted_args.extend(
+                (0..num_tupled_args)
+                    .into_iter()
+                    .map(|i| Tree::new_record_field_ref(spread_arg, i)),
+            );
+        }
 
         Tree::new_call_expr(UNKNOWN_LOCATION, call_expr_type, func, &converted_args)
     }
