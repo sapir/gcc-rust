@@ -531,7 +531,7 @@ struct FunctionConversion<'a, 'tcx, 'body> {
     /// directly, we crash gcc. This may be due to the struct being anonymous. Anyway, if we
     /// do it via a temporary variable, no crash. This is the temporary variable.
     tmp_var_decl_for_res: Tree,
-    parm_decls: DeclList,
+    args: Vec<Tree>,
     vars: DeclList,
     block_labels: Vec<Tree>,
     main_gcc_block: Tree,
@@ -545,10 +545,6 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         instance: Instance<'tcx>,
         body: &'body Body<'tcx>,
     ) -> Self {
-        if body.spread_arg.is_some() {
-            todo!("MIR spread_arg in {}", name);
-        }
-
         let return_type_is_void = if let TyKind::Tuple(substs) = &body.return_ty().kind {
             substs.is_empty()
         } else {
@@ -556,8 +552,51 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         };
 
         let return_type = conv_ctx.type_cache.convert_fn_return_type(body.return_ty());
-        let arg_types = conv_ctx.type_cache.convert_fn_arg_types(&body);
-        let fn_type = Tree::new_function_type(return_type, &arg_types);
+
+        // When we have a spread_arg, then one of our "arguments" is a tuple. Our function's
+        // argument list should contain the tuple elements, but its MIR should see the tuple
+        // instead. To support this, we add another VarDecl for the tuple, then initialize it
+        // with the extra arguments.
+        struct SpreadArgInfo {
+            /// Index of tuple in args list (both internal and external)
+            spread_arg_index: usize,
+            /// Number of fields in tuple
+            num_spread_args: usize,
+        }
+
+        let mut arg_types_for_caller = conv_ctx.type_cache.convert_fn_arg_types(&body);
+
+        let spread_arg_info = if let Some(spread_arg) = body.spread_arg {
+            let spread_arg_ty = body.local_decls[spread_arg].ty;
+
+            let spread_arg_types = if let ty::Tuple(substs) = spread_arg_ty.kind {
+                substs.types().into_iter().collect::<Vec<_>>()
+            } else {
+                unreachable!("spread_arg of type {:?}, expected Tuple", spread_arg_ty);
+            };
+
+            // Subtract 1 because Local indices include the return variable's local_decl, but arg
+            // indices don't.
+            let spread_arg_index = spread_arg.as_usize().checked_sub(1).unwrap();
+
+            let num_spread_args = spread_arg_types.len();
+
+            arg_types_for_caller.splice(
+                spread_arg_index..(spread_arg_index + 1),
+                spread_arg_types
+                    .into_iter()
+                    .map(|ty| conv_ctx.type_cache.convert_type(ty)),
+            );
+
+            Some(SpreadArgInfo {
+                spread_arg_index,
+                num_spread_args,
+            })
+        } else {
+            None
+        };
+
+        let fn_type = Tree::new_function_type(return_type, &arg_types_for_caller);
 
         let name = CString::new(&*name.as_str()).unwrap();
         let mut fn_decl = Function::new(&name, fn_type);
@@ -567,36 +606,65 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         let main_gcc_block = Tree::new_block(NULL_TREE, NULL_TREE, fn_decl.0, NULL_TREE);
         fn_decl.set_initial(main_gcc_block);
 
+        let mut stmt_list = StatementList::new();
+
         let res_decl = Tree::new_result_decl(UNKNOWN_LOCATION, return_type);
         fn_decl.set_result(res_decl);
 
-        let parm_decls = DeclList::new(TreeCode::ParmDecl, &arg_types);
-        fn_decl.attach_parm_decls(&parm_decls);
-
+        let tmp_var_decl_for_res;
+        let spread_arg_var;
         let vars = {
             let mut var_types = conv_ctx
                 .type_cache
                 .convert_local_decl_types(&body, body.vars_and_temps_iter());
-            assert_eq!(
-                1 + arg_types.len() + var_types.len(),
-                body.local_decls.len()
-            );
 
             // Add a var decl for tmp_var_decl_for_res
+            tmp_var_decl_for_res = var_types.len();
             var_types.push(return_type);
+
+            // Add a var decl for spread_arg if necessary
+            spread_arg_var = if let Some(spread_arg) = body.spread_arg {
+                var_types.push(
+                    conv_ctx
+                        .type_cache
+                        .convert_type(body.local_decls[spread_arg].ty),
+                );
+                Some(var_types.len() - 1)
+            } else {
+                None
+            };
 
             DeclList::new(TreeCode::VarDecl, &var_types)
         };
 
-        let tmp_var_decl_for_res = *vars.last().unwrap();
+        let tmp_var_decl_for_res = vars[tmp_var_decl_for_res];
+
+        let parm_decls_for_caller = DeclList::new(TreeCode::ParmDecl, &arg_types_for_caller);
+
+        let mut internal_args = (*parm_decls_for_caller).to_vec();
+        if let Some(SpreadArgInfo {
+            spread_arg_index,
+            num_spread_args,
+        }) = spread_arg_info
+        {
+            let spread_arg_var = vars[spread_arg_var.unwrap()];
+
+            let caller_arg_range = spread_arg_index..(spread_arg_index + num_spread_args);
+            internal_args.splice(caller_arg_range.clone(), [spread_arg_var].iter().copied());
+
+            for (i, parm_decl) in parm_decls_for_caller[caller_arg_range].iter().enumerate() {
+                let field = Tree::new_record_field_ref(spread_arg_var, i);
+                stmt_list.push(Tree::new_init_expr(field, *parm_decl));
+            }
+        }
+
+        fn_decl.attach_parm_decls(&parm_decls_for_caller);
 
         let block_labels = body
             .basic_blocks()
             .iter()
             .map(|_bb| Tree::new_label_decl(UNKNOWN_LOCATION, fn_decl.0))
             .collect::<Vec<_>>();
-
-        let stmt_list = StatementList::new();
 
         let tcx = conv_ctx.tcx;
 
@@ -609,7 +677,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             return_type_is_void,
             res_decl,
             tmp_var_decl_for_res,
-            parm_decls,
+            args: internal_args,
             vars,
             block_labels,
             main_gcc_block,
@@ -631,10 +699,10 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         let n = local.as_usize();
         if n == 0 {
             self.tmp_var_decl_for_res
-        } else if n <= self.parm_decls.len() {
-            self.parm_decls[n - 1]
+        } else if n <= self.args.len() {
+            self.args[n - 1]
         } else {
-            self.vars[n - self.parm_decls.len() - 1]
+            self.vars[n - self.args.len() - 1]
         }
     }
 
