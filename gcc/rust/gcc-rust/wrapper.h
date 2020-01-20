@@ -1,0 +1,8 @@
+#include "config.h"
+#include "system.h"
+#include "coretypes.h"
+#include "tree.h"
+#include "gimplify.h"
+#include "stor-layout.h"
+#include "tree-iterator.h"
+#include "stringpool.h"
