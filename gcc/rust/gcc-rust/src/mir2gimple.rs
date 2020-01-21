@@ -23,7 +23,6 @@ use rustc_mir::monomorphize::collector::{collect_crate_mono_items, MonoItemColle
 use rustc_span::symbol::Symbol;
 use rustc_target::spec::abi::Abi;
 use std::{collections::HashMap, convert::TryInto, ffi::CString};
-use syntax::ast::{IntTy, UintTy};
 
 // Copied from https://github.com/bjorn3/rustc_codegen_cranelift/blob/7ff01a4d59779609992aad947264abcc64617917/src/abi/mod.rs#L15
 // Copied from https://github.com/rust-lang/rust/blob/c2f4c57296f0d929618baed0b0d6eb594abf01eb/src/librustc/ty/layout.rs#L2349
@@ -186,6 +185,27 @@ impl<'tcx> TypeCache<'tcx> {
         record_ty
     }
 
+    fn convert_scalar_layout(&mut self, layout: TyLayout<'tcx>) -> Tree {
+        use ty::layout::Integer::*;
+        use ty::layout::Primitive::*;
+
+        if let ty::layout::Abi::Scalar(scalar_layout) = &layout.abi {
+            match scalar_layout.value {
+                Int(I8, true) => return Tree::new_signed_int_type(8),
+                Int(I16, true) => return Tree::new_signed_int_type(16),
+                Int(I32, true) => return Tree::new_signed_int_type(32),
+                Int(I64, true) => return Tree::new_signed_int_type(64),
+                Int(I8, false) => return Tree::new_unsigned_int_type(8),
+                Int(I16, false) => return TreeIndex::Uint16Type.into(),
+                Int(I32, false) => return TreeIndex::Uint32Type.into(),
+                Int(I64, false) => return TreeIndex::Uint64Type.into(),
+                _ => todo!("scalar layout value type {:?}", scalar_layout.value),
+            }
+        } else {
+            unreachable!("Expected a scalar layout, got {:?} instead", layout);
+        }
+    }
+
     fn convert_adt(&mut self, ty: Ty<'tcx>, adt_def: &AdtDef, substs: SubstsRef<'tcx>) -> Tree {
         // Cache type before creating fields to avoid infinite recursion for
         // self-referential types.
@@ -245,22 +265,16 @@ impl<'tcx> TypeCache<'tcx> {
         tt
     }
 
+    fn get_type_layout(&self, ty: Ty<'tcx>) -> TyLayout<'tcx> {
+        self.tcx.layout_of(ParamEnv::reveal_all().and(ty)).unwrap()
+    }
+
     fn do_convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
         use TyKind::*;
 
         match ty.kind {
             Bool => TreeIndex::BooleanType.into(),
-            Int(IntTy::Isize) => ISIZE_KIND.into(),
-            Int(IntTy::I8) => Tree::new_signed_int_type(8),
-            Int(IntTy::I16) => Tree::new_signed_int_type(16),
-            Int(IntTy::I32) => Tree::new_signed_int_type(32),
-            Int(IntTy::I64) => Tree::new_signed_int_type(64),
-            Uint(UintTy::Usize) => USIZE_KIND.into(),
-            Uint(UintTy::U8) => Tree::new_unsigned_int_type(8),
-            Uint(UintTy::U16) => TreeIndex::Uint16Type.into(),
-            Uint(UintTy::U32) => TreeIndex::Uint32Type.into(),
-            Uint(UintTy::U64) => TreeIndex::Uint64Type.into(),
-            Char => TreeIndex::Uint32Type.into(),
+            Int(_) | Uint(_) | Char => self.convert_scalar_layout(self.get_type_layout(ty)),
 
             Tuple(substs) => {
                 if substs.is_empty() {
