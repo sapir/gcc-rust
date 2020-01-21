@@ -5,8 +5,8 @@ use rustc::{
         interpret::{ConstValue, Scalar},
         mono::MonoItem,
         tcx::PlaceTy,
-        AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, CastKind, Local, NullOp, Operand,
-        Place, PlaceBase, ProjectionElem, Rvalue, StatementKind, TerminatorKind, UnOp,
+        AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, CastKind, HasLocalDecls, Local,
+        NullOp, Operand, Place, ProjectionElem, Rvalue, StatementKind, TerminatorKind, UnOp,
     },
     ty::{
         self,
@@ -739,10 +739,10 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         use ConstKind::*;
         use TyKind::*;
 
-        if let Unevaluated(def_id, substs) = const_.val {
+        if let Unevaluated(def_id, substs, promoted) = const_.val {
             const_ = &self
                 .tcx
-                .const_eval_resolve(ParamEnv::reveal_all(), def_id, substs, None)
+                .const_eval_resolve(ParamEnv::reveal_all(), def_id, substs, promoted, None)
                 .unwrap();
         }
 
@@ -804,15 +804,13 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     }
 
     fn get_place(&mut self, place: &Place<'tcx>) -> Tree {
-        let base = match &place.base {
-            PlaceBase::Local(local) => self.get_local(*local),
-            _ => unimplemented!("base {:?}", place),
-        };
+        let base = self.get_local(place.local);
 
         // Now apply any projections
 
         let mut component = base;
-        let mut component_ty = place.base.ty(&self.body.local_decls);
+        let mut component_ty =
+            PlaceTy::from_ty(&self.body.local_decls.local_decls()[place.local].ty);
 
         for elem in place.projection {
             use ProjectionElem::*;
