@@ -125,7 +125,7 @@ impl Tree {
         Self::new2(TreeCode::InitExpr, TreeIndex::VoidType.into(), var, value)
     }
 
-    pub fn new_int_constant<T: Into<Tree>>(int_type: T, value: u64) -> Self {
+    pub fn new_int_constant<T: Into<Tree>>(int_type: T, value: i64) -> Self {
         Tree(unsafe { build_int_cst_type(int_type.into().0, value) })
     }
 

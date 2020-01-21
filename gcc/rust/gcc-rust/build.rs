@@ -26,10 +26,12 @@ fn main() {
         .whitelist_function("make_signed_type")
         .whitelist_function("make_unsigned_type")
         .whitelist_function("get_identifier")
+        .blacklist_type("poly_int64")
         .default_enum_style(Rust {
             non_exhaustive: false,
         })
         .raw_line("#![allow(dead_code, non_upper_case_globals, non_camel_case_types)]")
+        .raw_line("pub type poly_int64 = i64;")
         .clang_arg(format!("-I{}", build_dir))
         .clang_arg("-I../../../include")
         .clang_arg("-I../../../libcpp/include")
@@ -54,8 +56,18 @@ impl ParseCallbacks for RustyNameEnum {
         MacroParsingBehavior::Default
     }
 
-    fn int_macro(&self, _name: &str, _value: i64) -> Option<IntKind> {
-        None
+    fn int_macro(&self, name: &str, value: i64) -> Option<IntKind> {
+        match name {
+            // TODO: Fix poly_int64 for architecture where poly_int64 != HOST_WIDE_INT
+            "NUM_POLY_INT_COEFFS" => {
+                if value != 1 {
+                    panic!("Architecture with NUM_POLY_INT_COEFFS != 1 are not supported yet")
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
     }
 
     fn str_macro(&self, _name: &str, _value: &[u8]) {}
