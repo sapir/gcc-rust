@@ -9,7 +9,6 @@ fn my_function(x: i32) -> i32 { x }
 
 But most language features don't work yet.
 
-
 ## How does it work?
 
 The `gcc/rust` directory contains a frontend with some boilerplate that links to
@@ -17,7 +16,6 @@ a Rust crate in `gcc/rust/gcc_rust`. The Rust code runs rustc up to the MIR
 stage, then generates a GENERIC tree (a GCC IR) and passes it back to the C
 code. Access to GCC's internal APIs (especially macros) is handled by C wrapper
 functions in `gcc/rust/rust1.cc`.
-
 
 ## Build instructions
 
@@ -44,4 +42,13 @@ make install
 
 cd ..
 gcc-install/bin/gcc whatever.rs -o whatever.so -shared
+```
+
+## Running tests
+
+```sh
+python3 -m pip install pytest
+
+git clone https://github.com/sapir/gcc-rust-tests/
+GCC_RUST="$(pwd)/gcc-install/bin/gcc" python3 gcc-rust-tests/test.py
 ```
