@@ -24,13 +24,13 @@ functions in `gcc/rust/rust1.cc`.
 (Be warned, these are currently rather rough.)
 
 ```sh
-rustup toolchain add nightly
-rustup component add --toolchain=nightly rustc-dev
-
 mkdir gcc
 cd gcc
 git clone --depth 50 -b rust https://github.com/sapir/gcc-rust/ gcc-src
-(cd gcc-src/gcc/rust/gcc-rust; rustup override set nightly)
+
+RUST_TOOLCHAIN=$(cat gcc-src/gcc/rust/gcc-rust/rust-toolchain)
+rustup toolchain add "$RUST_TOOLCHAIN"
+rustup component add --toolchain="$RUST_TOOLCHAIN" rustc-dev
 
 mkdir gcc-build
 cd gcc-build
