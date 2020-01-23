@@ -126,7 +126,7 @@ impl Tree {
     }
 
     pub fn new_int_constant<T: Into<Tree>>(int_type: T, value: i64) -> Self {
-        Tree(unsafe { build_int_cst_type(int_type.into().0, value) })
+        Tree(unsafe { build_int_constant(int_type.into().0, value) })
     }
 
     pub fn new_return_expr(value: Tree) -> Self {
@@ -383,6 +383,8 @@ extern "C" {
     static sizetype_tab: [Tree; SizeTypeKind::Last as usize];
 
     static crate_type: Option<NonNull<c_char>>;
+
+    fn build_int_constant(int_type: tree, value: i64) -> tree;
 
     fn _builtin_decl_implicit(fncode: BuiltinFunction) -> Tree;
 

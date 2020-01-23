@@ -125,6 +125,10 @@ extern "C" {
     return build_constructor(type, v);
   }
 
+  tree build_int_constant(tree int_type, int64_t value) {
+    return build_int_cst_type(int_type, value);
+  }
+
   tree build_constructor_from_element_array(
       tree type,
       size_t num_elements,
