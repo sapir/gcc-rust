@@ -8,3 +8,6 @@ edition = "2018"
 crate-type = ["dylib"]
 
 [dependencies]
+
+[build-dependencies]
+bindgen = "0.51.1"

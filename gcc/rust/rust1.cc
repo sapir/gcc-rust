@@ -87,103 +87,8 @@ extern "C" void compile_to_mir(const char **filenames, size_t num_filenames);
 extern "C" {
   const char *crate_type = NULL;
 
-  tree _alloc_stmt_list() {
-    return alloc_stmt_list();
-  }
-
-  void _append_to_statement_list(tree stmt, tree *list) {
-    append_to_statement_list(stmt, list);
-  }
-
-  tree _build0(enum tree_code code, tree tt) {
-    return build0(code, tt);
-  }
-
-  tree _build1(enum tree_code code, tree tt, tree arg0) {
-    return build1(code, tt, arg0);
-  }
-  tree _build2(enum tree_code code, tree tt, tree arg0, tree arg1) {
-    return build2(code, tt, arg0, arg1);
-  }
-  tree _build3(enum tree_code code, tree tt, tree arg0, tree arg1, tree arg2) {
-    return build3(code, tt, arg0, arg1, arg2);
-  }
-  tree _build4(enum tree_code code, tree tt, tree arg0, tree arg1, tree arg2, tree arg3) {
-    return build4(code, tt, arg0, arg1, arg2, arg3);
-  }
-  tree _build5(
-      enum tree_code code,
-      tree tt,
-      tree arg0,
-      tree arg1,
-      tree arg2,
-      tree arg3,
-      tree arg4
-  ) {
-    return build5(code, tt, arg0, arg1, arg2, arg3, arg4);
-  }
-  tree _build_decl(location_t loc, enum tree_code code, tree name, tree tt) {
-    return build_decl(loc, code, name, tt);
-  }
-  tree _build_translation_unit_decl(tree name) {
-    return build_translation_unit_decl(name);
-  }
-  tree _build_string_literal(
-      size_t len,
-      const char *string,
-      tree eltype,
-      unsigned long size
-  ) {
-    return build_string_literal(len, string, eltype, size);
-  }
-  tree _build_block(tree vars, tree subblocks, tree supercontext, tree chain) {
-    return build_block(vars, subblocks, supercontext, chain);
-  }
-  tree _build_call_array_loc(
-      location_t loc,
-      tree returntype,
-      tree fn_ptr,
-      size_t num_args,
-      tree *args
-  ) {
-    return build_call_array_loc(loc, returntype, fn_ptr, num_args, args);
-  }
-  tree _build_pointer_type(tree totype) {
-    return build_pointer_type(totype);
-  }
-  tree _build_function_type_array(
-      tree returntype,
-      size_t num_args,
-      tree *arg_types
-  ) {
-    return build_function_type_array(returntype, num_args, arg_types);
-  }
-  tree _build_fn_decl(const char *name, tree type) {
-    return build_fn_decl(name, type);
-  }
-
-  void _gimplify_function_tree(tree t) {
-    return gimplify_function_tree(t);
-  }
-
   tree _builtin_decl_implicit(enum built_in_function fncode) {
     return builtin_decl_implicit(fncode);
-  }
-
-  tree _build_array_type_nelts(tree elt_type, uint64_t nelts) {
-    return build_array_type_nelts(elt_type, nelts);
-  }
-
-  tree _make_signed_type(size_t bits) {
-    return make_signed_type(bits);
-  }
-
-  tree _make_unsigned_type(size_t bits) {
-    return make_unsigned_type(bits);
-  }
-
-  tree _get_identifier(const char *name) {
-    return get_identifier(name);
   }
 
   tree get_tree_type(tree t) {
@@ -220,6 +125,10 @@ extern "C" {
     return build_constructor(type, v);
   }
 
+  tree build_int_constant(tree int_type, int64_t value) {
+    return build_int_cst_type(int_type, value);
+  }
+
   tree build_constructor_from_element_array(
       tree type,
       size_t num_elements,
@@ -235,10 +144,6 @@ extern "C" {
     }
 
     return build_constructor(type, v);
-  }
-
-  tree build_int_constant(tree int_type, int64_t value) {
-    return build_int_cst_type(int_type, value);
   }
 
   tree build_label_decl(location_t loc, tree context) {

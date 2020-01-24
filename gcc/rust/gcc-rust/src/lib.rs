@@ -16,6 +16,7 @@ extern crate rustc_target;
 extern crate syntax;
 
 mod gcc_api;
+mod gcc_api_sys;
 mod mir2gimple;
 
 use gcc_api::get_crate_type;

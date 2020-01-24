@@ -32,10 +32,12 @@ rust1_OBJS = \
 RUST_SRCS = \
 	$(RUST_SRC_DIR)/src/lib.rs \
 	$(RUST_SRC_DIR)/src/gcc_api.rs \
+	$(RUST_SRC_DIR)/src/gcc_api_sys.rs \
 	$(RUST_SRC_DIR)/src/mir2gimple.rs
 
 RUST_SYSROOT = $(shell cd "$(RUST_SRC_DIR)" && rustc --print sysroot)
 
+$(RUST_LIB_BUILD_PATH): export GCC_BUILD_DIR=$(shell pwd)
 $(RUST_LIB_BUILD_PATH): $(RUST_SRCS)
 	(cd $(RUST_SRC_DIR); \
 	  cargo rustc -- -C link-args="-Wl,-rpath,$(RUST_SYSROOT)/lib")
