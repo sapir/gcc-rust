@@ -211,9 +211,25 @@ impl Tree {
         Tree::new0(code, NULL_TREE)
     }
 
-    pub fn finish_record_type(&mut self, mut fields: DeclList) {
+    pub fn place_field_manually(&mut self, byte_offset: u64) {
         unsafe {
-            finish_record_type(*self, fields.head().unwrap_or(NULL_TREE));
+            place_field_manually(*self, byte_offset);
+        }
+    }
+
+    pub fn finish_record_type(
+        &mut self,
+        mut fields: DeclList,
+        byte_size: u64,
+        byte_alignment: u64,
+    ) {
+        unsafe {
+            finish_record_type(
+                *self,
+                fields.head().unwrap_or(NULL_TREE),
+                byte_size,
+                byte_alignment,
+            );
         }
         fields.set_context(*self);
     }
@@ -412,7 +428,13 @@ extern "C" {
     fn set_decl_context(decl: Tree, context: Tree);
     fn set_decl_initial(decl: Tree, value: Tree);
     fn set_decl_chain_context(chain_head: Tree, context: Tree);
-    fn finish_record_type(record_type: Tree, fields_chain_head: Tree) -> Tree;
+    fn place_field_manually(field_decl: Tree, byte_offset: u64);
+    fn finish_record_type(
+        record_type: Tree,
+        fields_chain_head: Tree,
+        byte_size: u64,
+        byte_alignment: u64,
+    ) -> Tree;
     fn get_record_type_field_decl(record_type: Tree, index: usize) -> Tree;
     fn build_compound_literal_expr(type_: Tree, value: Tree, context: Tree) -> Tree;
     fn set_fn_result(fn_decl: Tree, result: Tree);

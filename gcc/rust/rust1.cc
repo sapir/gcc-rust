@@ -203,10 +203,38 @@ extern "C" {
     }
   }
 
-  void finish_record_type(tree record_type, tree fields_chain_head) {
+  void place_field_manually(tree field_decl, uint64_t byte_offset) {
+    layout_decl(field_decl, byte_offset);
+
+    if (byte_offset == 0) {
+      DECL_FIELD_OFFSET(field_decl) = size_zero_node;
+      SET_DECL_OFFSET_ALIGN(field_decl, BIGGEST_ALIGNMENT);
+    } else {
+      DECL_FIELD_OFFSET(field_decl) = build_int_cstu(sizetype, byte_offset);
+      SET_DECL_OFFSET_ALIGN(field_decl, 1 << ffs(byte_offset));
+    }
+
+    // We don't use bitfields or bit-unaligned fields
+    DECL_FIELD_BIT_OFFSET(field_decl) = bitsize_zero_node;
+  }
+
+  void finish_record_type(
+    tree record_type,
+    tree fields_chain_head,
+    uint64_t byte_size,
+    uint64_t byte_alignment
+  ) {
+    // see stor-layout.c:finish_record_layout()
+
     TYPE_FIELDS(record_type) = fields_chain_head;
-    // TODO: use the same layout as rustc
-    layout_type(record_type);
+    TYPE_SIZE(record_type) = build_int_cstu(bitsizetype, byte_size * BITS_PER_UNIT);
+    TYPE_SIZE_UNIT(record_type) = build_int_cstu(sizetype, byte_size);
+    SET_TYPE_ALIGN(record_type, byte_alignment * BITS_PER_UNIT);
+    // TODO: is this necessary?
+    TYPE_USER_ALIGN(record_type) = 1;
+
+    compute_record_mode(record_type);
+    // TODO: TYPE_PACKED
   }
 
   // TODO: store these in a rust vec? then no need for a loop here
