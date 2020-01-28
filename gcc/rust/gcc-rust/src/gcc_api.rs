@@ -383,12 +383,27 @@ impl std::fmt::Debug for Tree {
         } else {
             write!(
                 f,
-                "Tree({:?}, code={:?}, type={:?})",
+                "Tree({:?}, code={:?}, type={:?}",
                 self.0,
                 self.get_code(),
                 // This is recursive but should end eventually with a NULL_TREE
                 self.get_type()
-            )
+            )?;
+
+            if self.get_code() == TreeCode::RecordType {
+                let mut field_decls = vec![];
+                for i in 0.. {
+                    let field_decl = self.get_record_type_field_decl(i);
+                    if field_decl.0.is_null() {
+                        break;
+                    }
+                    field_decls.push(field_decl);
+                }
+
+                write!(f, ", fields={:#?}", field_decls)?;
+            }
+
+            write!(f, ")")
         }
     }
 }
