@@ -273,8 +273,7 @@ impl<'tcx> TypeCache<'tcx> {
         use TyKind::*;
 
         match ty.kind {
-            Bool => TreeIndex::BooleanType.into(),
-            Int(_) | Uint(_) | Char => self.convert_scalar_layout(self.get_type_layout(ty)),
+            Bool | Int(_) | Uint(_) | Char => self.convert_scalar_layout(self.get_type_layout(ty)),
 
             Tuple(substs) => {
                 if substs.is_empty() {
@@ -769,18 +768,10 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 let size = Size::from_bytes(size.into());
 
                 match const_.ty.kind {
-                    Int(_) | Uint(_) => Tree::new_int_constant(
+                    Bool | Int(_) | Uint(_) | Char => Tree::new_int_constant(
                         self.convert_type(const_.ty),
                         scalar.assert_bits(size).try_into().unwrap(),
                     ),
-
-                    Bool => {
-                        if scalar.to_bool().unwrap() {
-                            TreeIndex::BooleanTrue.into()
-                        } else {
-                            TreeIndex::BooleanFalse.into()
-                        }
-                    }
 
                     Tuple(substs) if substs.is_empty() => TreeIndex::Void.into(),
 
@@ -977,7 +968,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 let unchecked_value =
                     self.convert_rvalue(&BinaryOp(*op, operand1.clone(), operand2.clone()));
                 // TODO: perform the check
-                let check_value = TreeIndex::BooleanTrue.into();
+                let check_value =
+                    Tree::new_int_constant(self.convert_type(self.tcx.mk_bool()), true.into());
                 let constructor = Tree::new_record_constructor(
                     type_,
                     &[
