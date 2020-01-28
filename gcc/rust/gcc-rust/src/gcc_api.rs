@@ -497,6 +497,12 @@ impl std::ops::Deref for DeclList {
     }
 }
 
+impl std::ops::DerefMut for DeclList {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
 pub struct Function(pub Tree);
