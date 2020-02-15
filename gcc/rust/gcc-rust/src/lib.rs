@@ -18,6 +18,7 @@ extern crate syntax;
 mod gcc_api;
 mod gcc_api_sys;
 mod mir2gimple;
+mod convert_type;
 
 use gcc_api::get_crate_type;
 use rustc_driver::Compilation;

@@ -32,8 +32,8 @@ rust1_OBJS = \
 RUST_SRCS = \
 	$(RUST_SRC_DIR)/src/lib.rs \
 	$(RUST_SRC_DIR)/src/gcc_api.rs \
-	$(RUST_SRC_DIR)/src/gcc_api_sys.rs \
-	$(RUST_SRC_DIR)/src/mir2gimple.rs
+	$(RUST_SRC_DIR)/src/mir2gimple.rs \
+	$(RUST_SRC_DIR)/src/convert_type.rs
 
 RUST_SYSROOT = $(shell cd "$(RUST_SRC_DIR)" && rustc --print sysroot)
 
