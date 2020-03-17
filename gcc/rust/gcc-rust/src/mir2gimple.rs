@@ -272,29 +272,31 @@ impl<'tcx> TypeCache<'tcx> {
     fn do_convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
         use TyKind::*;
 
+        let layout = self.get_type_layout(ty);
+
+        // This includes the unit type. For function return types, convert_fn_return_type()
+        // converts it to void, but in other contexts, we treat it like other ZSTs, so that it can
+        // be instantiated.
+        if layout.is_zst() {
+            return Self::make_zst();
+        }
+
         match ty.kind {
-            Bool | Int(_) | Uint(_) | Char => self.convert_scalar_layout(self.get_type_layout(ty)),
+            Bool | Int(_) | Uint(_) | Char => self.convert_scalar_layout(layout),
 
             Tuple(substs) => {
-                if substs.is_empty() {
-                    // This is the unit type.
-                    // For function return types, convert_fn_return_type() converts it to void,
-                    // but in other contexts, we treat it like other ZSTs, so that it can be
-                    // instantiated.
-                    Self::make_zst()
-                } else {
-                    let fields = DeclList::new(
-                        TreeCode::FieldDecl,
-                        &substs
-                            .types()
-                            .map(|field_ty| self.convert_type(field_ty))
-                            .collect::<Vec<_>>(),
-                    );
+                assert!(!substs.is_empty());
+                let fields = DeclList::new(
+                    TreeCode::FieldDecl,
+                    &substs
+                        .types()
+                        .map(|field_ty| self.convert_type(field_ty))
+                        .collect::<Vec<_>>(),
+                );
 
-                    let mut ty = Tree::new_record_type(TreeCode::RecordType);
-                    ty.finish_record_type(fields);
-                    ty
-                }
+                let mut ty = Tree::new_record_type(TreeCode::RecordType);
+                ty.finish_record_type(fields);
+                ty
             }
 
             Adt(adt_def, substs) => self.convert_adt(ty, adt_def, substs),
@@ -311,8 +313,6 @@ impl<'tcx> TypeCache<'tcx> {
                     Tree::new_pointer_type(self.convert_type(ty))
                 }
             }
-
-            FnDef(..) => Self::make_zst(),
 
             FnPtr(sig) => Tree::new_pointer_type(self.convert_fn_sig(sig).into_function_type()),
 
