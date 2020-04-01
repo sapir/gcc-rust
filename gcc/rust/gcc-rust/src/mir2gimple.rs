@@ -609,11 +609,13 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         // argument list should contain the tuple elements, but its MIR should see the tuple
         // instead. To support this, we add another VarDecl for the tuple, then initialize it
         // with the extra arguments.
-        struct SpreadArgInfo {
+        struct SpreadArgInfo<'tcx> {
             /// Index of tuple in args list (both internal and external)
             spread_arg_index: usize,
             /// Number of fields in tuple
             num_spread_args: usize,
+            /// Tuple type
+            spread_arg_ty: Ty<'tcx>,
         }
 
         let mut arg_types_for_caller = conv_ctx.type_cache.convert_fn_arg_types(&body);
@@ -643,6 +645,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             Some(SpreadArgInfo {
                 spread_arg_index,
                 num_spread_args,
+                spread_arg_ty,
             })
         } else {
             None
@@ -697,6 +700,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         if let Some(SpreadArgInfo {
             spread_arg_index,
             num_spread_args,
+            spread_arg_ty,
         }) = spread_arg_info
         {
             let spread_arg_var = vars[spread_arg_var.unwrap()];
@@ -704,8 +708,14 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             let caller_arg_range = spread_arg_index..(spread_arg_index + num_spread_args);
             internal_args.splice(caller_arg_range.clone(), [spread_arg_var].iter().copied());
 
-            for (i, parm_decl) in parm_decls_for_caller[caller_arg_range].iter().enumerate() {
-                let field = Tree::new_record_field_ref(spread_arg_var, i);
+            let layout = conv_ctx.layout_of(spread_arg_ty);
+            for (i, (parm_decl, field_ty)) in parm_decls_for_caller[caller_arg_range]
+                .iter()
+                .zip(spread_arg_ty.tuple_fields())
+                .enumerate()
+            {
+                let field_ty = conv_ctx.type_cache.convert_type(field_ty);
+                let field = Self::get_field(spread_arg_var, layout, i, field_ty);
                 stmt_list.push(Tree::new_init_expr(field, *parm_decl));
             }
         }
@@ -851,17 +861,15 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         place.ty(&self.body.local_decls, self.tcx)
     }
 
-    fn get_place_field(
-        &mut self,
-        place_tree: Tree,
-        place_ty: PlaceTy<'tcx>,
-        field: &Field,
+    fn get_field(
+        container: Tree,
+        container_layout: TyLayout<'tcx>,
+        field: usize,
         field_ty: Tree,
     ) -> Tree {
-        let layout = self.conv_ctx.layout_of_place_ty(place_ty);
-        let field_offset = layout.fields.offset(field.index());
+        let field_offset = container_layout.fields.offset(field);
 
-        let place_ptr = Tree::new_addr_expr(place_tree);
+        let place_ptr = Tree::new_addr_expr(container);
 
         let field_ptr = if field_offset == Size::ZERO {
             // We'll be converting as *(field_type*)&struct
@@ -899,7 +907,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             match elem {
                 Field(field, field_ty) => {
                     let field_ty = self.convert_type(field_ty);
-                    component = self.get_place_field(component, component_ty, field, field_ty);
+                    let layout = self.conv_ctx.layout_of_place_ty(component_ty);
+                    component = Self::get_field(component, layout, field.index(), field_ty);
                 }
 
                 Downcast(_, variant_index) => {
@@ -1005,7 +1014,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     .unwrap();
                 // TODO: not sure .ty is correct
                 let field_ty = self.convert_type(field_layout.ty);
-                self.get_place_field(place_tree, place_ty, &field, field_ty)
+                Self::get_field(place_tree, layout, field.index(), field_ty)
             }
         }
     }
@@ -1036,7 +1045,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     .unwrap();
                 // TODO: not sure .ty is correct
                 let field_ty = self.convert_type(field_layout.ty);
-                let field = self.get_place_field(place_tree, place_ty, &field, field_ty);
+                let field = Self::get_field(place_tree, layout, field.index(), field_ty);
 
                 let variant_index =
                     Tree::new_int_constant(field.get_type(), variant_index.as_u32().into());
@@ -1473,18 +1482,19 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         // For RustCall, the last argument is a tuple, and each of its fields should be passed as
         // a separate argument.
         if fn_sig.abi() == rustc_target::spec::abi::Abi::RustCall {
-            let num_tupled_args = args
-                .last()
-                .unwrap()
-                .ty(&self.body.local_decls, self.tcx)
-                .tuple_fields()
-                .count();
+            let spread_arg = args.last().unwrap();
+            let spread_arg_ty = spread_arg.ty(&self.body.local_decls, self.tcx);
 
-            let spread_arg = converted_args.pop().unwrap();
+            let layout = self.conv_ctx.layout_of(spread_arg_ty);
+            let converted_spread_arg = converted_args.pop().unwrap();
             converted_args.extend(
-                (0..num_tupled_args)
-                    .into_iter()
-                    .map(|i| Tree::new_record_field_ref(spread_arg, i)),
+                spread_arg_ty
+                    .tuple_fields()
+                    .enumerate()
+                    .map(|(i, field_ty)| {
+                        let field_ty = self.convert_type(field_ty);
+                        Self::get_field(converted_spread_arg, layout, i, field_ty)
+                    }),
             );
         }
 
