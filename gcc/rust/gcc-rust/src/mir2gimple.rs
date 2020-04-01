@@ -5,8 +5,8 @@ use rustc::{
         interpret::{ConstValue, Scalar},
         mono::MonoItem,
         tcx::PlaceTy,
-        AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, CastKind, HasLocalDecls, Local,
-        NullOp, Operand, Place, ProjectionElem, Rvalue, StatementKind, TerminatorKind, UnOp,
+        AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, CastKind, Field, HasLocalDecls,
+        Local, NullOp, Operand, Place, ProjectionElem, Rvalue, StatementKind, TerminatorKind, UnOp,
     },
     ty::{
         self,
@@ -18,6 +18,7 @@ use rustc::{
     },
 };
 use rustc_hir::def_id::DefId;
+use rustc_index::vec::Idx;
 use rustc_interface::Queries;
 use rustc_mir::monomorphize::collector::{collect_crate_mono_items, MonoItemCollectionMode};
 use rustc_span::symbol::Symbol;
@@ -850,6 +851,38 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         place.ty(&self.body.local_decls, self.tcx)
     }
 
+    fn get_place_field(
+        &mut self,
+        place_tree: Tree,
+        place_ty: PlaceTy<'tcx>,
+        field: &Field,
+        field_ty: Tree,
+    ) -> Tree {
+        let layout = self.conv_ctx.layout_of_place_ty(place_ty);
+        let field_offset = layout.fields.offset(field.index());
+
+        let place_ptr = Tree::new_addr_expr(place_tree);
+
+        let field_ptr = if field_offset == Size::ZERO {
+            // We'll be converting as *(field_type*)&struct
+            place_ptr
+        } else {
+            // We'll be converting as *(field_type*)((void*)&struct + field_offset)
+            let field_offset =
+                Tree::new_int_constant(USIZE_KIND, field_offset.bytes().try_into().unwrap());
+
+            Tree::new2(
+                TreeCode::PointerPlusExpr,
+                place_ptr.get_type(),
+                place_ptr,
+                field_offset,
+            )
+        };
+
+        let new_field_ptr_type = Tree::new_pointer_type(field_ty);
+        Tree::new_indirect_ref(Tree::new1(TreeCode::NopExpr, new_field_ptr_type, field_ptr))
+    }
+
     fn get_place(&mut self, place: &Place<'tcx>) -> Tree {
         let base = self.get_local(place.local);
 
@@ -865,37 +898,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
             match elem {
                 Field(field, field_ty) => {
-                    let layout = self.conv_ctx.layout_of_place_ty(component_ty);
-                    let field_offset = layout.fields.offset(field.index());
-                    // let field_layout =
-                    //     layout.field(&self.conv_ctx.type_cache.make_layout_cx(), field.index());
-
-                    let component_ptr = Tree::new_addr_expr(component);
-
-                    let field_ptr = if field_offset == Size::ZERO {
-                        // We'll be converting as *(field_type*)&struct
-                        component_ptr
-                    } else {
-                        // We'll be converting as *(field_type*)((void*)&struct + field_offset)
-                        let field_offset = Tree::new_int_constant(
-                            USIZE_KIND,
-                            field_offset.bytes().try_into().unwrap(),
-                        );
-
-                        Tree::new2(
-                            TreeCode::PointerPlusExpr,
-                            component_ptr.get_type(),
-                            component_ptr,
-                            field_offset,
-                        )
-                    };
-
-                    let new_field_ptr_type = Tree::new_pointer_type(self.convert_type(field_ty));
-                    component = Tree::new_indirect_ref(Tree::new1(
-                        TreeCode::NopExpr,
-                        new_field_ptr_type,
-                        field_ptr,
-                    ));
+                    let field_ty = self.convert_type(field_ty);
+                    component = self.get_place_field(component, component_ty, field, field_ty);
                 }
 
                 Downcast(_, variant_index) => {
@@ -981,9 +985,9 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     /// Get an expression for an enum's discriminant field
     fn get_discriminant(&mut self, place: &Place<'tcx>) -> Tree {
         let place_ty = self.get_place_ty(place);
-        let layout = self.conv_ctx.layout_of(place_ty.ty);
+        let layout = self.conv_ctx.layout_of_place_ty(place_ty);
 
-        let place = self.get_place(place);
+        let place_tree = self.get_place(place);
 
         match &layout.variants {
             ty::layout::Variants::Single { index } => todo!("discriminant of Single"),
@@ -994,10 +998,14 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 discr_kind,
                 variants: _,
             } => {
-                // enum's own fields are inside 1st field.
-                // Then discriminant is in discr_index.
-                // TODO: discriminant types
-                Tree::new_record_field_ref(Tree::new_record_field_ref(place, 0), *discr_index)
+                // TODO: discriminant kinds
+                let field = Field::new(*discr_index);
+                let field_layout = layout
+                    .field(&self.conv_ctx.type_cache.make_layout_cx(), *discr_index)
+                    .unwrap();
+                // TODO: not sure .ty is correct
+                let field_ty = self.convert_type(field_layout.ty);
+                self.get_place_field(place_tree, place_ty, &field, field_ty)
             }
         }
     }
@@ -1009,9 +1017,9 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         variant_index: ty::layout::VariantIdx,
     ) -> Tree {
         let place_ty = self.get_place_ty(place);
-        let layout = self.conv_ctx.layout_of(place_ty.ty);
+        let layout = self.conv_ctx.layout_of_place_ty(place_ty);
 
-        let place = self.get_place(place);
+        let place_tree = self.get_place(place);
 
         match &layout.variants {
             ty::layout::Variants::Single { index } => todo!("setting discriminant of Single"),
@@ -1022,14 +1030,17 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 discr_kind,
                 variants: _,
             } => {
-                // enum's own fields are inside 1st field.
-                // Then discriminant is in discr_index.
-                // TODO: discriminant types
-                let discr_ref =
-                    Tree::new_record_field_ref(Tree::new_record_field_ref(place, 0), *discr_index);
+                let field = Field::new(*discr_index);
+                let field_layout = layout
+                    .field(&self.conv_ctx.type_cache.make_layout_cx(), *discr_index)
+                    .unwrap();
+                // TODO: not sure .ty is correct
+                let field_ty = self.convert_type(field_layout.ty);
+                let field = self.get_place_field(place_tree, place_ty, &field, field_ty);
+
                 let variant_index =
-                    Tree::new_int_constant(discr_ref.get_type(), variant_index.as_u32().into());
-                Tree::new_init_expr(discr_ref, variant_index)
+                    Tree::new_int_constant(field.get_type(), variant_index.as_u32().into());
+                Tree::new_init_expr(field, variant_index)
             }
         }
     }
