@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use std::{
+    convert::TryInto,
     ffi::{CStr, CString},
     os::raw::c_char,
     ptr::{null_mut, NonNull},
@@ -326,6 +327,10 @@ impl Tree {
             Tree::new_pointer_type(value.get_type()),
             value,
         )
+    }
+
+    pub fn new_vector_type(element_type: Tree, num_elements: u64) -> Self {
+        Tree(unsafe { build_vector_type(element_type.0, num_elements.try_into().unwrap()) })
     }
 
     pub fn new_array_type(element_type: Tree, num_elements: u64) -> Self {

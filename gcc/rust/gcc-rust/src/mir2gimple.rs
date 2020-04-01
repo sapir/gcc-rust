@@ -348,7 +348,9 @@ impl<'tcx> TypeCache<'tcx> {
             // Also, it's nice if a pointer to this can be a void*.
             Uninhabited => TreeIndex::VoidType.into(),
 
-            Vector { .. } => todo!("Vector"),
+            Vector { element, count } => {
+                Tree::new_vector_type(self.convert_scalar(layout, element), *count)
+            }
 
             Aggregate { .. } => {
                 assert!(!layout.details.abi.is_unsized());
