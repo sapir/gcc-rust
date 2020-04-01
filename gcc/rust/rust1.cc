@@ -163,6 +163,22 @@ extern "C" {
     TREE_PUBLIC(t) = value;
   }
 
+  void set_tree_side_effects(tree t, bool value) {
+    TREE_SIDE_EFFECTS(t) = value;
+  }
+
+  void set_tree_constant(tree t, bool value) {
+    TREE_CONSTANT(t) = value;
+  }
+
+  void set_tree_used(tree t, bool value) {
+    TREE_USED(t) = value;
+  }
+
+  void set_tree_addressable(tree t, bool value) {
+    TREE_ADDRESSABLE(t) = value;
+  }
+
   void make_decl_chain(
     enum tree_code code,
     size_t num_decls,

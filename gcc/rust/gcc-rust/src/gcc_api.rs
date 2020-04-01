@@ -360,6 +360,30 @@ impl Tree {
         }
     }
 
+    pub fn set_side_effects(&mut self, value: bool) {
+        unsafe {
+            set_tree_side_effects(*self, value);
+        }
+    }
+
+    pub fn set_constant(&mut self, value: bool) {
+        unsafe {
+            set_tree_constant(*self, value);
+        }
+    }
+
+    pub fn set_used(&mut self, value: bool) {
+        unsafe {
+            set_tree_used(*self, value);
+        }
+    }
+
+    pub fn set_addressable(&mut self, value: bool) {
+        unsafe {
+            set_tree_addressable(*self, value);
+        }
+    }
+
     pub fn set_decl_context(&mut self, context: Tree) {
         unsafe {
             set_decl_context(*self, context);
@@ -448,6 +472,10 @@ extern "C" {
     fn build_label_decl(loc: Location, context: Tree) -> Tree;
     fn set_tree_static(tree: Tree, value: bool);
     fn set_tree_public(tree: Tree, value: bool);
+    fn set_tree_side_effects(tree: Tree, value: bool);
+    fn set_tree_constant(tree: Tree, value: bool);
+    fn set_tree_used(tree: Tree, value: bool);
+    fn set_tree_addressable(tree: Tree, value: bool);
     fn make_decl_chain(code: TreeCode, num_decls: usize, types: *const Tree, decls: *mut Tree);
     fn set_decl_context(decl: Tree, context: Tree);
     fn set_decl_initial(decl: Tree, value: Tree);
