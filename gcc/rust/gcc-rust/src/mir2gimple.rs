@@ -945,6 +945,10 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         Tree::new_compound_literal_expr(array_type, constructor, self.fn_decl.0)
     }
 
+    fn make_void_value() -> Tree {
+        Tree::new1(TreeCode::NopExpr, TreeIndex::VoidType.into(), NULL_TREE)
+    }
+
     fn convert_operand(&mut self, operand: &Operand<'tcx>) -> Tree {
         use Operand::*;
 
@@ -1279,6 +1283,11 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         Tree::new_goto(target)
     }
 
+    fn convert_panic(&self) -> Tree {
+        // TODO: should be a trap
+        self.convert_unreachable()
+    }
+
     fn convert_unreachable(&self) -> Tree {
         Tree::new_call_expr(
             UNKNOWN_LOCATION,
@@ -1361,6 +1370,16 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             }
 
             "unreachable" => self.convert_unreachable(),
+
+            "panic_if_uninhabited" => {
+                let ty = substs.type_at(0);
+                let layout = self.conv_ctx.layout_of(ty);
+                if layout.abi.is_uninhabited() {
+                    self.convert_panic()
+                } else {
+                    Self::make_void_value()
+                }
+            }
 
             _ => todo!("rust intrinsic {:?}", name),
         }
