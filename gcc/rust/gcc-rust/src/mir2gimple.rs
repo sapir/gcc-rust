@@ -1131,7 +1131,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 )
             }
 
-            Ref(_region, _borrow_kind, place) => Tree::new_addr_expr(self.get_place(place)),
+            Ref(_, _, place) | AddressOf(_, place) => Tree::new_addr_expr(self.get_place(place)),
 
             Cast(cast_kind, operand, new_ty) => {
                 use CastKind::*;
