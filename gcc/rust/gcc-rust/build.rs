@@ -28,11 +28,13 @@ fn main() {
         .whitelist_function("get_identifier")
         .whitelist_function("useless_type_conversion_p")
         .blacklist_type("poly_int64")
+        .blacklist_type("poly_uint64")
         .default_enum_style(Rust {
             non_exhaustive: false,
         })
         .raw_line("#![allow(dead_code, non_upper_case_globals, non_camel_case_types)]")
         .raw_line("pub type poly_int64 = i64;")
+        .raw_line("pub type poly_uint64 = u64;")
         .clang_arg(format!("-I{}", build_dir))
         .clang_arg("-I../../../include")
         .clang_arg("-I../../../libcpp/include")
