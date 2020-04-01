@@ -172,7 +172,9 @@ impl Tree {
     }
 
     pub fn new_var_decl(loc: Location, name: Tree, type_: Tree) -> Self {
-        unsafe { Tree(build_decl(loc.0, TreeCode::VarDecl, name.0, type_.0)) }
+        let mut t = unsafe { Tree(build_decl(loc.0, TreeCode::VarDecl, name.0, type_.0)) };
+        t.set_used(true);
+        t
     }
 
     pub fn new_label_decl(loc: Location, context: Tree) -> Self {
@@ -523,6 +525,12 @@ impl DeclList {
 
         unsafe {
             make_decl_chain(code, types.len(), types.as_ptr(), decls.as_mut_ptr());
+        }
+
+        if code == TreeCode::VarDecl {
+            for decl in &mut decls {
+                decl.set_used(true);
+            }
         }
 
         DeclList(decls)
