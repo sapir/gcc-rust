@@ -323,12 +323,18 @@ impl Tree {
         Tree(unsafe { build_pointer_type(to_type.0) })
     }
 
-    pub fn new_addr_expr(value: Tree) -> Self {
-        Tree::new1(
+    pub fn new_addr_expr(mut value: Tree) -> Self {
+        if value.get_code() == TreeCode::VarDecl {
+            value.set_addressable(true);
+        }
+
+        let mut t = Tree::new1(
             TreeCode::AddrExpr,
             Tree::new_pointer_type(value.get_type()),
             value,
-        )
+        );
+        t.set_constant(true);
+        t
     }
 
     pub fn new_vector_type(element_type: Tree, num_elements: u64) -> Self {
