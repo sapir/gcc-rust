@@ -899,8 +899,19 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 }
 
                 Downcast(_, variant_index) => {
-                    // enums are unions, add 1 to variant index to find the variant
-                    component = Tree::new_record_field_ref(component, variant_index.as_usize() + 1);
+                    let layout = self.conv_ctx.layout_of_place_ty(component_ty);
+                    let layout = layout
+                        .for_variant(&self.conv_ctx.type_cache.make_layout_cx(), *variant_index);
+                    // TODO: convert_layout() doesn't guarantee this to be cached. But it will be,
+                    // because it's an enum variant.
+                    let new_ptr_type =
+                        Tree::new_pointer_type(self.conv_ctx.type_cache.convert_layout(layout));
+                    // Cast to a pointer to the variant
+                    component = Tree::new_indirect_ref(Tree::new1(
+                        TreeCode::NopExpr,
+                        new_ptr_type,
+                        Tree::new_addr_expr(component),
+                    ));
                 }
 
                 Deref => {
