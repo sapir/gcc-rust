@@ -26,6 +26,7 @@ fn main() {
         .whitelist_function("make_signed_type")
         .whitelist_function("make_unsigned_type")
         .whitelist_function("get_identifier")
+        .whitelist_function("useless_type_conversion_p")
         .blacklist_type("poly_int64")
         .default_enum_style(Rust {
             non_exhaustive: false,

@@ -3,6 +3,7 @@
 #include "coretypes.h"
 #include "tree.h"
 #include "gimplify.h"
+#include "gimple-expr.h"
 #include "stor-layout.h"
 #include "tree-iterator.h"
 #include "stringpool.h"

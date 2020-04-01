@@ -80,6 +80,10 @@ impl Tree {
         unsafe { set_type_name(*self, identifier) }
     }
 
+    pub fn is_compatible_type(self, other: Tree) -> bool {
+        unsafe { useless_type_conversion_p(self.0, other.0) }
+    }
+
     pub fn new_function_type(return_type: Tree, arg_types: &[Tree]) -> Self {
         unsafe {
             Tree(build_function_type_array(

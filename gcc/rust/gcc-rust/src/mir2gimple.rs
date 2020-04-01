@@ -953,6 +953,14 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         }
     }
 
+    fn implicit_cast(value: Tree, required_type: Tree) -> Tree {
+        if value.get_type().is_compatible_type(required_type) {
+            value
+        } else {
+            Tree::new1(TreeCode::NopExpr, required_type, value)
+        }
+    }
+
     /// Get an expression for an enum's discriminant field
     fn get_discriminant(&mut self, place: &Place<'tcx>) -> Tree {
         let place_ty = self.get_place_ty(place);
@@ -1073,8 +1081,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 };
 
                 let type_ = self.convert_type(rv.ty(self.body, self.tcx));
-                let operand1 = self.convert_operand(operand1);
-                let operand2 = self.convert_operand(operand2);
+                let operand1 = Self::implicit_cast(self.convert_operand(operand1), type_);
+                let operand2 = Self::implicit_cast(self.convert_operand(operand2), type_);
                 Tree::new2(code, type_, operand1, operand2)
             }
 
@@ -1514,7 +1522,10 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     let place_is_void = place.get_type().get_code() == TreeCode::VoidType;
                     let rvalue_is_void = rvalue.get_type().get_code() == TreeCode::VoidType;
                     if !place_is_void && !rvalue_is_void {
-                        self.stmt_list.push(Tree::new_init_expr(place, rvalue));
+                        self.stmt_list.push(Tree::new_init_expr(
+                            place,
+                            Self::implicit_cast(rvalue, place.get_type()),
+                        ));
                     } else {
                         self.stmt_list.push(place);
                         self.stmt_list.push(rvalue);
