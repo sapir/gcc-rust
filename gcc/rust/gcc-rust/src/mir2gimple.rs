@@ -904,6 +904,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         for elem in place.projection {
             use ProjectionElem::*;
 
+            let next_component_ty = component_ty.projection_ty(self.tcx, elem);
+
             match elem {
                 Field(field, field_ty) => {
                     let field_ty = self.convert_type(field_ty);
@@ -932,6 +934,13 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                         // If it's a slice, then don't do anything, we'll need the slice ref
                         // struct itself.
                     } else {
+                        // Pointer type conversion is messed up. Fix it before dereferencing.
+                        let dereffed_layout = self.conv_ctx.layout_of_place_ty(next_component_ty);
+                        let pointer_ty = Tree::new_pointer_type(
+                            self.conv_ctx.type_cache.convert_layout(dereffed_layout),
+                        );
+                        component = Tree::new1(TreeCode::NopExpr, pointer_ty, component);
+
                         component = Tree::new_indirect_ref(component);
                     }
                 }
@@ -956,7 +965,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 _ => unimplemented!("projection {:?}", elem),
             }
 
-            component_ty = component_ty.projection_ty(self.tcx, elem);
+            component_ty = next_component_ty;
         }
 
         component
@@ -1497,6 +1506,17 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     }),
             );
         }
+
+        // Force the ABI we're using
+        let func_ty_by_abi = Tree::new_function_type(
+            call_expr_type,
+            &converted_args
+                .iter()
+                .map(|arg| arg.get_type())
+                .collect::<Vec<_>>(),
+        );
+        let func_ty_by_abi = Tree::new_pointer_type(func_ty_by_abi);
+        let func = Tree::new1(TreeCode::NopExpr, func_ty_by_abi, func);
 
         Tree::new_call_expr(UNKNOWN_LOCATION, call_expr_type, func, &converted_args)
     }
