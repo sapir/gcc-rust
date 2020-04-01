@@ -716,7 +716,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             {
                 let field_ty = conv_ctx.type_cache.convert_type(field_ty);
                 let field = Self::get_field(spread_arg_var, layout, i, field_ty);
-                stmt_list.push(Tree::new_init_expr(field, *parm_decl));
+                stmt_list.push(Tree::new_assignment(field, *parm_decl));
             }
         }
 
@@ -1049,7 +1049,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                 let variant_index =
                     Tree::new_int_constant(field.get_type(), variant_index.as_u32().into());
-                Tree::new_init_expr(field, variant_index)
+                Tree::new_assignment(field, variant_index)
             }
         }
     }
@@ -1528,7 +1528,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             if returns_void {
                 self.stmt_list.push(call_expr);
             } else {
-                let init_expr = Tree::new_init_expr(self.get_place(place), call_expr);
+                let init_expr = Tree::new_assignment(self.get_place(place), call_expr);
                 self.stmt_list.push(init_expr);
             }
 
@@ -1575,7 +1575,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     let place_is_void = place.get_type().get_code() == TreeCode::VoidType;
                     let rvalue_is_void = rvalue.get_type().get_code() == TreeCode::VoidType;
                     if !place_is_void && !rvalue_is_void {
-                        self.stmt_list.push(Tree::new_init_expr(
+                        self.stmt_list.push(Tree::new_assignment(
                             place,
                             Self::implicit_cast(rvalue, place.get_type()),
                         ));
@@ -1671,7 +1671,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 let return_value = if self.return_type_is_void {
                     NULL_TREE
                 } else {
-                    Tree::new_init_expr(self.res_decl, self.tmp_var_decl_for_res)
+                    Tree::new_assignment(self.res_decl, self.tmp_var_decl_for_res)
                 };
 
                 self.stmt_list.push(Tree::new_return_expr(return_value));

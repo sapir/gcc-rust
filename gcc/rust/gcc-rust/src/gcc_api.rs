@@ -126,8 +126,8 @@ impl Tree {
         unsafe { Tree(build_translation_unit_decl(name.0)) }
     }
 
-    pub fn new_init_expr(var: Tree, value: Tree) -> Self {
-        Self::new2(TreeCode::InitExpr, TreeIndex::VoidType.into(), var, value)
+    pub fn new_assignment(var: Tree, value: Tree) -> Self {
+        Self::new2(TreeCode::ModifyExpr, value.get_type(), var, value)
     }
 
     pub fn new_int_constant<T: Into<Tree>>(int_type: T, value: i64) -> Self {
