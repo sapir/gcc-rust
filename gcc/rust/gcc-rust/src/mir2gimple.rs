@@ -1054,6 +1054,9 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                         niche_variants,
                         niche_start,
                     } => {
+                        // Who knows what type our value is, let's cast it to an integer
+                        value = Tree::new1(TreeCode::NopExpr, ISIZE_KIND.into(), value);
+
                         let niche_start = *niche_start;
                         if niche_start != 0 {
                             value = Tree::new2(
