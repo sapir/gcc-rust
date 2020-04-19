@@ -675,6 +675,10 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         let res_decl = Tree::new_result_decl(UNKNOWN_LOCATION, return_type);
         fn_decl.set_result(res_decl);
 
+        for (i, decl) in body.local_decls.iter_enumerated() {
+            eprintln!("Local {:?}, type {:?}", i, decl.ty);
+        }
+
         let tmp_var_decl_for_res;
         let spread_arg_var;
         let vars = {
@@ -1699,7 +1703,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                 Assign(assign) => {
                     let (place, rvalue) = &**assign;
-                    eprintln!("{:?} = {:?}", place, rvalue);
+                    eprintln!("Assign: {:?} = {:?}", place, rvalue);
 
                     let place = self.get_place(place);
                     let rvalue = self.convert_rvalue(rvalue);
