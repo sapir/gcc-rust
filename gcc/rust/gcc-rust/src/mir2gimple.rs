@@ -200,7 +200,9 @@ impl<'tcx> TypeCache<'tcx> {
                 self.convert_scalar_at_offset(scalar2_layout, layout, scalar2_ofs),
             ],
         );
+        fields[0].set_decl_name(Tree::new_identifier("field0"));
         fields[0].place_field_manually(scalar1_ofs.bytes());
+        fields[1].set_decl_name(Tree::new_identifier("field1"));
         fields[1].place_field_manually(scalar2_ofs.bytes());
 
         let mut ty = Tree::new_record_type(TreeCode::RecordType);
@@ -226,6 +228,7 @@ impl<'tcx> TypeCache<'tcx> {
 
         let mut fields = DeclList::new(TreeCode::FieldDecl, &field_types);
         for (i, field) in fields.iter_mut().enumerate() {
+            field.set_decl_name(Tree::new_identifier(format!("field{}", i)));
             field.place_field_manually(layout.fields.offset(i).bytes());
         }
 
@@ -310,7 +313,13 @@ impl<'tcx> TypeCache<'tcx> {
 
                         let mut union_fields =
                             DeclList::new(TreeCode::FieldDecl, &union_field_types);
-                        for field in union_fields.iter_mut() {
+                        for (i, field) in union_fields.iter_mut().enumerate() {
+                            field.set_decl_name(Tree::new_identifier(if i == 0 {
+                                "own_fields".to_string()
+                            } else {
+                                format!("variant{}", i)
+                            }));
+
                             field.place_field_manually(0);
                         }
 

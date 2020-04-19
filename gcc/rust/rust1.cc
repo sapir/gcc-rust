@@ -219,6 +219,10 @@ extern "C" {
     }
   }
 
+  void set_decl_name(tree decl, tree name) {
+      DECL_NAME(decl) = name;
+  }
+
   void place_field_manually(tree field_decl, uint64_t byte_offset) {
     layout_decl(field_decl, byte_offset);
 

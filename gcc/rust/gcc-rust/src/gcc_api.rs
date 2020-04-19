@@ -404,6 +404,12 @@ impl Tree {
         }
     }
 
+    pub fn set_decl_name(&mut self, name: Tree) {
+        unsafe {
+            set_decl_name(*self, name);
+        }
+    }
+
     pub fn finalize_decl(&mut self) {
         unsafe {
             finalize_decl(*self);
@@ -488,6 +494,7 @@ extern "C" {
     fn set_decl_context(decl: Tree, context: Tree);
     fn set_decl_initial(decl: Tree, value: Tree);
     fn set_decl_chain_context(chain_head: Tree, context: Tree);
+    fn set_decl_name(decl: Tree, identifier: Tree);
     fn place_field_manually(field_decl: Tree, byte_offset: u64);
     fn finish_record_type(
         record_type: Tree,
