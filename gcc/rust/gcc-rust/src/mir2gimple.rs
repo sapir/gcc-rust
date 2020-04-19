@@ -1534,6 +1534,11 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 }
             }
 
+            "assume" => {
+                eprintln!("Warning: Ignoring 'assume' intrinsic {:?}", original_args);
+                Self::make_void_value()
+            }
+
             _ => todo!("rust intrinsic {:?}", name),
         }
     }
