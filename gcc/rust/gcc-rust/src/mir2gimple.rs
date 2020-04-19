@@ -13,8 +13,8 @@ use rustc::{
         adjustment::PointerCast,
         layout::{DiscriminantKind, LayoutCx, Size, TyLayout},
         subst::{Subst, SubstsRef},
-        AdtKind, Const, ConstKind, Instance, InstanceDef, ParamEnv, PolyExistentialTraitRef,
-        PolyFnSig, Ty, TyCtxt, TyKind, TyS,
+        Const, ConstKind, Instance, InstanceDef, ParamEnv, PolyExistentialTraitRef, PolyFnSig, Ty,
+        TyCtxt, TyKind, TyS,
     },
 };
 use rustc_hir::def_id::DefId;
@@ -840,24 +840,6 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                         self.convert_type(const_.ty),
                         scalar.assert_bits(size).try_into().unwrap(),
                     ),
-
-                    Adt(adt_def, _substs) if adt_def.adt_kind() == AdtKind::Struct => {
-                        let type_ = self.convert_type(const_.ty);
-
-                        let layout = self.conv_ctx.layout_of(const_.ty);
-                        let constructor = if layout.is_zst() {
-                            Tree::new_record_constructor(
-                                type_,
-                                // no fields, it's a ZST
-                                &[],
-                                &[],
-                            )
-                        } else {
-                            todo!("non-ZST Adt literal")
-                        };
-
-                        Tree::new_compound_literal_expr(type_, constructor, self.fn_decl.0)
-                    }
 
                     _ => unimplemented!(
                         "const, ty.kind={:?}, ty={:?}, val={:?}",
