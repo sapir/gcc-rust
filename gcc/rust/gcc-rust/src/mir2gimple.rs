@@ -997,6 +997,10 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         Tree::new1(TreeCode::NopExpr, TreeIndex::VoidType.into(), NULL_TREE)
     }
 
+    fn get_operand_ty(&mut self, operand: &Operand<'tcx>) -> Ty<'tcx> {
+        operand.ty(&self.body.local_decls, self.tcx)
+    }
+
     fn convert_operand(&mut self, operand: &Operand<'tcx>) -> Tree {
         use Operand::*;
 
@@ -1309,11 +1313,39 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 use PointerCast::*;
 
                 match cast_kind {
-                    Misc => Tree::new1(
-                        TreeCode::ConvertExpr,
-                        self.convert_type(new_ty),
-                        self.convert_operand(operand),
-                    ),
+                    Misc => {
+                        // See codegen_clif base.rs
+                        let old_ty = self.get_operand_ty(operand);
+
+                        let is_fat_ptr = |ty: Ty<'tcx>| {
+                            if let Some(pointee_ty_and_mut) = ty.builtin_deref(true) {
+                                use TyKind::*;
+
+                                match pointee_ty_and_mut.ty.kind {
+                                    Slice { .. } | Str | Dynamic(..) => true,
+                                    _ => false,
+                                }
+                            } else {
+                                false
+                            }
+                        };
+
+                        if is_fat_ptr(old_ty) && !is_fat_ptr(new_ty) {
+                            // Get the regular part of the pointer
+                            Tree::new1(
+                                TreeCode::NopExpr,
+                                self.convert_type(new_ty),
+                                Tree::new_record_field_ref(self.convert_operand(operand), 0),
+                            )
+                        } else {
+                            // TODO: enum -> discriminant cast, see clif base.rs
+                            Tree::new1(
+                                TreeCode::ConvertExpr,
+                                self.convert_type(new_ty),
+                                self.convert_operand(operand),
+                            )
+                        }
+                    }
 
                     Pointer(MutToConstPointer) | Pointer(UnsafeFnPointer) => Tree::new1(
                         TreeCode::NopExpr,
@@ -1322,7 +1354,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     ),
 
                     Pointer(ReifyFnPointer) => {
-                        let fn_def = operand.ty(&self.body.local_decls, self.tcx);
+                        let fn_def = self.get_operand_ty(operand);
                         if let ty::FnDef(def_id, substs) = fn_def.kind {
                             let instance = self.conv_ctx.resolve_fn(def_id, substs);
                             self.conv_ctx.convert_instance_to_fn_ptr(instance)
@@ -1332,7 +1364,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     }
 
                     Pointer(Unsize) => {
-                        let old_ty = operand.ty(&self.body.local_decls, self.tcx);
+                        let old_ty = self.get_operand_ty(operand);
 
                         if TyS::same_type(old_ty, new_ty) {
                             return self.convert_operand(operand);
