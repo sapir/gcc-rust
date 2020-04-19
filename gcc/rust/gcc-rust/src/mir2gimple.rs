@@ -1755,7 +1755,13 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
         let terminator = block.terminator();
         match &terminator.kind {
-            Drop { .. } | Resume | Abort => {
+            Drop { target, .. } => {
+                eprintln!("TODO: ignoring {:?}", terminator.kind);
+                // Ignoring the Drop for now, but do do the goto.
+                self.stmt_list.push(self.convert_goto(*target));
+            }
+
+            Resume | Abort => {
                 eprintln!("TODO: ignoring {:?}", terminator.kind);
             }
 
