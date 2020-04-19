@@ -1579,6 +1579,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 Self::make_void_value()
             }
 
+            "transmute" => Tree::new1(TreeCode::ViewConvertExpr, call_expr_type, converted_args[0]),
+
             _ => todo!("rust intrinsic {:?}", name),
         }
     }
