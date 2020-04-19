@@ -1067,8 +1067,18 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                         niche_variants,
                         niche_start,
                     } => {
-                        // Who knows what type our value is, let's cast it to an integer
-                        value = Tree::new1(TreeCode::NopExpr, ISIZE_KIND.into(), value);
+                        // Who knows what type our value field is. It might be a pointer for which
+                        // we can't use regular math. Anyway, we need to cast it.
+                        if let ty::layout::Primitive::Int(int_size, signed) = discr.value {
+                            let discr_ty =
+                                self.conv_ctx.type_cache.convert_integer(int_size, signed);
+                            value = Tree::new1(TreeCode::NopExpr, discr_ty, value);
+                        } else {
+                            todo!(
+                                "Don't know how to handle non-int discriminant type {:?}",
+                                discr
+                            );
+                        }
 
                         let niche_start = *niche_start;
                         if niche_start != 0 {
