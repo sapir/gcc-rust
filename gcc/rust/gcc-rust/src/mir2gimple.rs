@@ -124,8 +124,10 @@ impl<'tcx> TypeCache<'tcx> {
     }
 
     fn make_zst() -> Tree {
-        // Use a zero-length array of whatever.
-        Tree::new_array_type(IntegerTypeKind::Int.into(), 0)
+        // Use an empty struct.
+        let mut ty = Tree::new_record_type(TreeCode::RecordType);
+        ty.finish_record_type(DeclList::new(TreeCode::FieldDecl, &[]), 0, 1);
+        ty
     }
 
     fn make_layout_cx(&self) -> LayoutCx<'tcx, TyCtxt<'tcx>> {
@@ -984,11 +986,11 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         component
     }
 
-    fn make_zst_literal(&mut self, array_type: Ty<'tcx>) -> Tree {
-        // TypeCache::make_zst() converts ZSTs to zero-length arrays, so construct an empty array
-        let array_type = self.convert_type(array_type);
-        let constructor = Tree::new_array_constructor(array_type, &[]);
-        Tree::new_compound_literal_expr(array_type, constructor, self.fn_decl.0)
+    fn make_zst_literal(&mut self, ty: Ty<'tcx>) -> Tree {
+        // TypeCache::make_zst() converts ZSTs to empty structs, so construct an empty struct
+        let ty = self.convert_type(ty);
+        let constructor = Tree::new_record_constructor(ty, &[], &[]);
+        Tree::new_compound_literal_expr(ty, constructor, self.fn_decl.0)
     }
 
     fn make_void_value() -> Tree {
