@@ -1071,16 +1071,14 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     } => {
                         // Who knows what type our value field is. It might be a pointer for which
                         // we can't use regular math. Anyway, we need to cast it.
-                        if let ty::layout::Primitive::Int(int_size, signed) = discr.value {
-                            let discr_ty =
-                                self.conv_ctx.type_cache.convert_integer(int_size, signed);
-                            value = Tree::new1(TreeCode::NopExpr, discr_ty, value);
-                        } else {
-                            todo!(
-                                "Don't know how to handle non-int discriminant type {:?}",
-                                discr
-                            );
-                        }
+                        let discr_ty = match discr.value {
+                            ty::layout::Primitive::Int(int_size, signed) => {
+                                self.conv_ctx.type_cache.convert_integer(int_size, signed)
+                            }
+                            ty::layout::Primitive::Pointer => ISIZE_KIND.into(),
+                            _ => todo!("Don't know how to handle discriminant type {:?}", discr),
+                        };
+                        value = Tree::new1(TreeCode::NopExpr, discr_ty, value);
 
                         let niche_start = *niche_start;
                         if niche_start != 0 {
