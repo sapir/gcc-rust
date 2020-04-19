@@ -1696,7 +1696,11 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         for stmt in &block.statements {
             eprintln!("  {:?}", stmt);
         }
-        eprintln!("  {:?}", block.terminator.as_ref().map(|t| &t.kind));
+        if let Some(term) = &block.terminator {
+            eprintln!("  => {:?}", term.kind);
+        } else {
+            eprintln!("  => (No terminator)");
+        }
 
         self.stmt_list.push(Tree::new_label_expr(
             self.block_labels[block_index.as_usize()],
