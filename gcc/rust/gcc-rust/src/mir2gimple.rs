@@ -1694,7 +1694,11 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     }
 
     fn convert_basic_block(&mut self, block_index: BasicBlock, block: &BasicBlockData<'tcx>) {
-        println!("{:?}", block);
+        eprintln!("bb{}:", block_index.as_usize());
+        for stmt in &block.statements {
+            eprintln!("  {:?}", stmt);
+        }
+        eprintln!("  {:?}", block.terminator.as_ref().map(|t| &t.kind));
 
         self.stmt_list.push(Tree::new_label_expr(
             self.block_labels[block_index.as_usize()],
@@ -1715,7 +1719,6 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                 Assign(assign) => {
                     let (place, rvalue) = &**assign;
-                    eprintln!("Assign: {:?} = {:?}", place, rvalue);
 
                     let place = self.get_place(place);
                     let rvalue = self.convert_rvalue(rvalue);
