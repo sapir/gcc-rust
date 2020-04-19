@@ -1288,7 +1288,19 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 )
             }
 
-            Ref(_, _, place) | AddressOf(_, place) => Tree::new_addr_expr(self.get_place(place)),
+            Ref(_, _, place) | AddressOf(_, place) => {
+                if let Some((ProjectionElem::Deref, except_deref)) = place.projection.split_last() {
+                    // Address and deref cancel out, so make a new place without the deref
+                    let projection = self.tcx.intern_place_elems(except_deref);
+                    let place = Place {
+                        local: place.local,
+                        projection,
+                    };
+                    self.get_place(&place)
+                } else {
+                    Tree::new_addr_expr(self.get_place(place))
+                }
+            }
 
             Cast(cast_kind, operand, new_ty) => {
                 use CastKind::*;
