@@ -1000,15 +1000,42 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         }
     }
 
+    fn get_discriminant_field(
+        &mut self,
+        enum_tree: Tree,
+        enum_layout: TyLayout<'tcx>,
+        discr_index: usize,
+    ) -> Tree {
+        // TODO: types here are probably wrong or inaccurate
+        let field = Field::new(discr_index);
+        let field_layout = enum_layout
+            .field(&self.conv_ctx.type_cache.make_layout_cx(), discr_index)
+            .unwrap();
+        // TODO: not sure .ty is correct
+        let field_ty = self.convert_type(field_layout.ty);
+        Self::get_field(enum_tree, enum_layout, field.index(), field_ty)
+    }
+
     /// Get an expression for an enum's discriminant field
+    // See codegen_clif discriminant.rs:codegen_get_discriminant
     fn get_discriminant(&mut self, place: &Place<'tcx>) -> Tree {
         let place_ty = self.get_place_ty(place);
         let layout = self.conv_ctx.layout_of_place_ty(place_ty);
 
         let place_tree = self.get_place(place);
 
+        // TODO: types here are probably wrong or inaccurate
         match &layout.variants {
-            ty::layout::Variants::Single { index } => todo!("discriminant of Single"),
+            ty::layout::Variants::Single { index } => Tree::new_int_constant(
+                ISIZE_KIND,
+                layout
+                    .ty
+                    .discriminant_for_variant(self.tcx, *index)
+                    .unwrap()
+                    .val
+                    .try_into()
+                    .unwrap(),
+            ),
 
             ty::layout::Variants::Multiple {
                 discr,
@@ -1016,49 +1043,123 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 discr_kind,
                 variants: _,
             } => {
-                // TODO: discriminant kinds
-                let field = Field::new(*discr_index);
-                let field_layout = layout
-                    .field(&self.conv_ctx.type_cache.make_layout_cx(), *discr_index)
-                    .unwrap();
-                // TODO: not sure .ty is correct
-                let field_ty = self.convert_type(field_layout.ty);
-                Self::get_field(place_tree, layout, field.index(), field_ty)
+                let mut value = self.get_discriminant_field(place_tree, layout, *discr_index);
+
+                match discr_kind {
+                    // TODO: check signed value like clif does
+                    DiscriminantKind::Tag => {}
+
+                    DiscriminantKind::Niche {
+                        dataful_variant,
+                        niche_variants,
+                        niche_start,
+                    } => {
+                        let niche_start = *niche_start;
+                        if niche_start != 0 {
+                            value = Tree::new2(
+                                TreeCode::MinusExpr,
+                                value.get_type(),
+                                value,
+                                Tree::new_int_constant(
+                                    value.get_type(),
+                                    niche_start.try_into().unwrap(),
+                                ),
+                            );
+                        }
+
+                        let relative_max =
+                            niche_variants.end().as_u32() - niche_variants.start().as_u32();
+                        let is_in_range = Tree::new2(
+                            TreeCode::LeExpr,
+                            TreeIndex::BooleanType.into(),
+                            value,
+                            Tree::new_int_constant(value.get_type(), relative_max.into()),
+                        );
+
+                        value = Tree::new_cond_expr(
+                            is_in_range,
+                            Tree::new2(
+                                TreeCode::PlusExpr,
+                                value.get_type(),
+                                value,
+                                Tree::new_int_constant(
+                                    value.get_type(),
+                                    niche_variants.start().as_u32().into(),
+                                ),
+                            ),
+                            Tree::new_int_constant(
+                                value.get_type(),
+                                dataful_variant.as_u32().into(),
+                            ),
+                        );
+                    }
+                }
+
+                value
             }
         }
     }
 
-    /// Make a statement that sets an enum's discriminant field
-    fn make_set_discriminant(
-        &mut self,
-        place: &Place<'tcx>,
-        variant_index: ty::layout::VariantIdx,
-    ) -> Tree {
+    /// Add statements that set an enum's discriminant field to self.stmt_list
+    // See codegen_clif discriminant.rs:codegen_set_discriminant
+    fn add_set_discriminant(&mut self, place: &Place<'tcx>, variant_index: ty::layout::VariantIdx) {
         let place_ty = self.get_place_ty(place);
         let layout = self.conv_ctx.layout_of_place_ty(place_ty);
+        if layout
+            .for_variant(&self.conv_ctx.type_cache.make_layout_cx(), variant_index)
+            .abi
+            .is_uninhabited()
+        {
+            return;
+        }
 
         let place_tree = self.get_place(place);
 
         match &layout.variants {
-            ty::layout::Variants::Single { index } => todo!("setting discriminant of Single"),
+            ty::layout::Variants::Single { index } => {
+                // No need to actually set it.
+                assert_eq!(*index, variant_index);
+            }
 
             ty::layout::Variants::Multiple {
-                discr,
+                discr: _,
                 discr_index,
                 discr_kind,
                 variants: _,
             } => {
-                let field = Field::new(*discr_index);
-                let field_layout = layout
-                    .field(&self.conv_ctx.type_cache.make_layout_cx(), *discr_index)
-                    .unwrap();
-                // TODO: not sure .ty is correct
-                let field_ty = self.convert_type(field_layout.ty);
-                let field = Self::get_field(place_tree, layout, field.index(), field_ty);
+                let field = self.get_discriminant_field(place_tree, layout, *discr_index);
 
-                let variant_index =
-                    Tree::new_int_constant(field.get_type(), variant_index.as_u32().into());
-                Tree::new_assignment(field, variant_index)
+                let value = match discr_kind {
+                    DiscriminantKind::Tag => {
+                        layout
+                            .ty
+                            .discriminant_for_variant(self.tcx, variant_index)
+                            .unwrap()
+                            .val
+                    }
+
+                    DiscriminantKind::Niche {
+                        dataful_variant,
+                        niche_variants,
+                        niche_start,
+                    } => {
+                        if variant_index == *dataful_variant {
+                            return;
+                        }
+
+                        u128::from(
+                            variant_index
+                                .as_u32()
+                                .wrapping_sub(niche_variants.start().as_u32().into()),
+                        )
+                        .wrapping_add((*niche_start).into())
+                    }
+                };
+
+                let value = Tree::new_int_constant(field.get_type(), value.try_into().unwrap());
+
+                let stmt = Tree::new_assignment(field, value);
+                self.stmt_list.push(stmt);
             }
         }
     }
@@ -1609,8 +1710,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     place,
                     variant_index,
                 } => {
-                    let stmt = self.make_set_discriminant(place, *variant_index);
-                    self.stmt_list.push(stmt);
+                    self.add_set_discriminant(place, *variant_index);
                 }
 
                 _ => unimplemented!("{:?}", stmt),

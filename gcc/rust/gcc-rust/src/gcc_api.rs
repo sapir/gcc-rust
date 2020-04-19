@@ -192,7 +192,7 @@ impl Tree {
     pub fn new_cond_expr(cond: Tree, true_expr: Tree, false_expr: Tree) -> Self {
         Tree::new3(
             TreeCode::CondExpr,
-            TreeIndex::VoidType.into(),
+            true_expr.get_type(),
             cond,
             true_expr,
             false_expr,
