@@ -831,13 +831,15 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 };
                 let size = Size::from_bytes(size.into());
 
+                if size == Size::ZERO {
+                    return self.make_zst_literal(const_.ty);
+                }
+
                 match const_.ty.kind {
                     Bool | Int(_) | Uint(_) | Char => Tree::new_int_constant(
                         self.convert_type(const_.ty),
                         scalar.assert_bits(size).try_into().unwrap(),
                     ),
-
-                    Tuple(substs) if substs.is_empty() => TreeIndex::Void.into(),
 
                     Adt(adt_def, _substs) if adt_def.adt_kind() == AdtKind::Struct => {
                         let type_ = self.convert_type(const_.ty);
@@ -856,8 +858,6 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                         Tree::new_compound_literal_expr(type_, constructor, self.fn_decl.0)
                     }
-
-                    FnDef(..) => self.make_zst_literal(const_.ty),
 
                     _ => unimplemented!(
                         "const, ty.kind={:?}, ty={:?}, val={:?}",
