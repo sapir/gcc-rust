@@ -57,3 +57,6 @@ REVISION
 /mpc*
 /gmp*
 /isl*
+
+# dynamically generated file
+/gcc/rust/gcc-rust/src/gcc_api_sys.rs
