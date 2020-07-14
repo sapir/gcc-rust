@@ -1,5 +1,8 @@
 use crate::gcc_api::*;
-use rustc::{
+use rustc_hir::def_id::DefId;
+use rustc_index::vec::Idx;
+use rustc_interface::Queries;
+use rustc_middle::{
     bug,
     mir::{
         interpret::{ConstValue, Scalar},
@@ -11,23 +14,26 @@ use rustc::{
     ty::{
         self,
         adjustment::PointerCast,
-        layout::{DiscriminantKind, LayoutCx, Size, TyLayout},
+        layout::{LayoutCx, TyAndLayout},
         subst::{Subst, SubstsRef},
         Const, ConstKind, Instance, InstanceDef, ParamEnv, PolyExistentialTraitRef, PolyFnSig, Ty,
         TyCtxt, TyKind, TyS,
     },
 };
-use rustc_hir::def_id::DefId;
-use rustc_index::vec::Idx;
-use rustc_interface::Queries;
 use rustc_mir::monomorphize::collector::{collect_crate_mono_items, MonoItemCollectionMode};
 use rustc_span::symbol::Symbol;
-use rustc_target::spec::abi::Abi;
+use rustc_target::{
+    abi::{Size, TagEncoding},
+    spec::abi::Abi,
+};
 use std::{collections::HashMap, convert::TryInto, ffi::CString};
 
-// Copied from https://github.com/bjorn3/rustc_codegen_cranelift/blob/7ff01a4d59779609992aad947264abcc64617917/src/abi/mod.rs#L15
-// Copied from https://github.com/rust-lang/rust/blob/c2f4c57296f0d929618baed0b0d6eb594abf01eb/src/librustc/ty/layout.rs#L2349
-fn fn_sig_for_fn_abi<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> PolyFnSig<'tcx> {
+// Copied from https://github.com/bjorn3/rustc_codegen_cranelift/blob/8dfb1daea7a79ad983058098a091a2f4a7525cc9/src/abi/mod.rs#L16
+// Copied from https://github.com/rust-lang/rust/blob/b2c1a606feb1fbdb0ac0acba76f881ef172ed474/src/librustc_middle/ty/layout.rs#L2287
+pub(crate) fn fn_sig_for_fn_abi<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    instance: Instance<'tcx>,
+) -> ty::PolyFnSig<'tcx> {
     let ty = instance.monomorphic_ty(tcx);
     match ty.kind {
         ty::FnDef(..) |
@@ -46,19 +52,19 @@ fn fn_sig_for_fn_abi<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> PolyF
             sig
         }
         ty::Closure(def_id, substs) => {
-            let sig = substs.as_closure().sig(def_id, tcx);
+            let sig = substs.as_closure().sig();
 
             let env_ty = tcx.closure_env_ty(def_id, substs).unwrap();
             sig.map_bound(|sig| tcx.mk_fn_sig(
-                std::iter::once(*env_ty.skip_binder()).chain(sig.inputs().iter().cloned()),
+                std::iter::once(env_ty.skip_binder()).chain(sig.inputs().iter().cloned()),
                 sig.output(),
                 sig.c_variadic,
                 sig.unsafety,
                 sig.abi
             ))
         }
-        ty::Generator(def_id, substs, _) => {
-            let sig = substs.as_generator().poly_sig(def_id, tcx);
+        ty::Generator(_, substs, _) => {
+            let sig = substs.as_generator().poly_sig();
 
             let env_region = ty::ReLateBound(ty::INNERMOST, ty::BrEnv);
             let env_ty = tcx.mk_mut_ref(tcx.mk_region(env_region), ty);
@@ -77,8 +83,9 @@ fn fn_sig_for_fn_abi<'tcx>(tcx: TyCtxt<'tcx>, instance: Instance<'tcx>) -> PolyF
                 ]);
                 let ret_ty = tcx.mk_adt(state_adt_ref, state_substs);
 
-                tcx.mk_fn_sig(std::iter::once(env_ty),
-                    ret_ty,
+                tcx.mk_fn_sig(
+                    [env_ty, sig.resume_ty].iter(),
+                    &ret_ty,
                     false,
                     rustc_hir::Unsafety::Normal,
                     rustc_target::spec::abi::Abi::Rust
@@ -111,7 +118,7 @@ struct TypeCache<'tcx> {
     /// "Regular" type cache
     tys: HashMap<Ty<'tcx>, Tree>,
     /// Special cache for enum variants (and structs) because enum variants aren't full types
-    variants: HashMap<(Ty<'tcx>, ty::layout::VariantIdx), Tree>,
+    variants: HashMap<(Ty<'tcx>, rustc_target::abi::VariantIdx), Tree>,
 }
 
 impl<'tcx> TypeCache<'tcx> {
@@ -137,8 +144,8 @@ impl<'tcx> TypeCache<'tcx> {
         }
     }
 
-    fn convert_integer(&mut self, integer: ty::layout::Integer, signed: bool) -> Tree {
-        use ty::layout::Integer::*;
+    fn convert_integer(&mut self, integer: rustc_target::abi::Integer, signed: bool) -> Tree {
+        use rustc_target::abi::Integer::*;
 
         match (integer, signed) {
             (I8, true) => Tree::new_signed_int_type(8),
@@ -156,21 +163,21 @@ impl<'tcx> TypeCache<'tcx> {
     /// Convert a Scalar Abi, a field of a ScalarPair Abi or an enum discriminant.
     fn convert_scalar_at_offset(
         &mut self,
-        scalar_layout: &ty::layout::Scalar,
-        base_ty_layout: TyLayout<'tcx>,
+        scalar_layout: &rustc_target::abi::Scalar,
+        base_ty_and_layout: TyAndLayout<'tcx>,
         offset: Size,
     ) -> Tree {
-        use ty::layout::Primitive::*;
+        use rustc_target::abi::Primitive::*;
 
         match scalar_layout.value {
             Int(int_type, signed) => self.convert_integer(int_type, signed),
 
             Pointer => Tree::new_pointer_type(
-                base_ty_layout
+                base_ty_and_layout
                     .pointee_info_at(&self.make_layout_cx(), offset)
                     .map_or(TreeIndex::VoidType.into(), |pointee| {
                         self.convert_integer(
-                            ty::layout::Integer::approximate_align(&self.tcx, pointee.align),
+                            rustc_target::abi::Integer::approximate_align(&self.tcx, pointee.align),
                             false,
                         )
                     }),
@@ -179,15 +186,19 @@ impl<'tcx> TypeCache<'tcx> {
         }
     }
 
-    fn convert_scalar(&mut self, layout: TyLayout<'tcx>, scalar: &ty::layout::Scalar) -> Tree {
-        self.convert_scalar_at_offset(scalar, layout, Size::ZERO)
+    fn convert_scalar(
+        &mut self,
+        ty_and_layout: TyAndLayout<'tcx>,
+        scalar: &rustc_target::abi::Scalar,
+    ) -> Tree {
+        self.convert_scalar_at_offset(scalar, ty_and_layout, Size::ZERO)
     }
 
     fn convert_scalar_pair(
         &mut self,
-        layout: TyLayout<'tcx>,
-        scalar1_layout: &ty::layout::Scalar,
-        scalar2_layout: &ty::layout::Scalar,
+        ty_and_layout: TyAndLayout<'tcx>,
+        scalar1_layout: &rustc_target::abi::Scalar,
+        scalar2_layout: &rustc_target::abi::Scalar,
     ) -> Tree {
         let scalar1_ofs = Size::ZERO;
         let scalar2_ofs = scalar1_layout
@@ -198,8 +209,8 @@ impl<'tcx> TypeCache<'tcx> {
         let mut fields = DeclList::new(
             TreeCode::FieldDecl,
             &[
-                self.convert_scalar_at_offset(scalar1_layout, layout, scalar1_ofs),
-                self.convert_scalar_at_offset(scalar2_layout, layout, scalar2_ofs),
+                self.convert_scalar_at_offset(scalar1_layout, ty_and_layout, scalar1_ofs),
+                self.convert_scalar_at_offset(scalar2_layout, ty_and_layout, scalar2_ofs),
             ],
         );
         fields[0].set_decl_name(Tree::new_identifier("field0"));
@@ -210,20 +221,20 @@ impl<'tcx> TypeCache<'tcx> {
         let mut ty = Tree::new_record_type(TreeCode::RecordType);
         ty.finish_record_type(
             fields,
-            layout.details.size.bytes(),
-            layout.details.align.abi.bytes(),
+            ty_and_layout.layout.size.bytes(),
+            ty_and_layout.layout.align.abi.bytes(),
         );
         ty
     }
 
-    /// Returns a RecordType with the fields in layout.fields. Ignores the variant cache.
-    fn convert_adt_fields(&mut self, layout: TyLayout<'tcx>) -> Tree {
+    /// Returns a RecordType with the fields in ty_and_layout.fields. Ignores the variant cache.
+    fn convert_adt_fields(&mut self, ty_and_layout: TyAndLayout<'tcx>) -> Tree {
         let layout_cx = self.make_layout_cx();
 
-        let field_types = (0..layout.fields.count())
+        let field_types = (0..ty_and_layout.fields.count())
             .into_iter()
             .map(|i| {
-                let field_layout = layout.field(&layout_cx, i).unwrap();
+                let field_layout = ty_and_layout.field(&layout_cx, i).unwrap();
                 self.convert_type(field_layout.ty)
             })
             .collect::<Vec<_>>();
@@ -231,39 +242,47 @@ impl<'tcx> TypeCache<'tcx> {
         let mut fields = DeclList::new(TreeCode::FieldDecl, &field_types);
         for (i, field) in fields.iter_mut().enumerate() {
             field.set_decl_name(Tree::new_identifier(format!("field{}", i)));
-            field.place_field_manually(layout.fields.offset(i).bytes());
+            field.place_field_manually(ty_and_layout.fields.offset(i).bytes());
         }
 
         let mut ty = Tree::new_record_type(TreeCode::RecordType);
-        ty.finish_record_type(fields, layout.size.bytes(), layout.align.abi.bytes());
+        ty.finish_record_type(
+            fields,
+            ty_and_layout.size.bytes(),
+            ty_and_layout.align.abi.bytes(),
+        );
         ty
     }
 
-    fn convert_single_variant_layout(&mut self, layout: TyLayout<'tcx>) -> Tree {
-        let variant_index = if let ty::layout::Variants::Single { index } = &layout.variants {
-            *index
-        } else {
-            unreachable!("expected Single variant, got {:?}", layout);
-        };
+    fn convert_single_variant_layout(&mut self, ty_and_layout: TyAndLayout<'tcx>) -> Tree {
+        let variant_index =
+            if let rustc_target::abi::Variants::Single { index } = &ty_and_layout.variants {
+                *index
+            } else {
+                unreachable!("expected Single variant, got {:?}", ty_and_layout);
+            };
 
-        if let Some(tree) = self.variants.get(&(layout.ty, variant_index)) {
+        if let Some(tree) = self.variants.get(&(ty_and_layout.ty, variant_index)) {
             return *tree;
         }
 
-        let tree = self.convert_adt_fields(layout);
-        self.variants.insert((layout.ty, variant_index), tree);
+        let tree = self.convert_adt_fields(ty_and_layout);
+        self.variants
+            .insert((ty_and_layout.ty, variant_index), tree);
         tree
     }
 
-    fn convert_aggregate(&mut self, layout: TyLayout<'tcx>) -> Tree {
-        use ty::layout::FieldPlacement;
+    fn convert_aggregate(&mut self, ty_and_layout: TyAndLayout<'tcx>) -> Tree {
+        use rustc_target::abi::FieldsShape;
 
-        match &layout.fields {
-            FieldPlacement::Array { stride, count: _ } => {
+        match &ty_and_layout.fields {
+            FieldsShape::Primitive => unreachable!("aggregate type with FieldsShape::Primitive"),
+
+            FieldsShape::Array { stride, count: _ } => {
                 // Enum variants can contain arrays but won't be arrays themselves. So an array
-                // can't be an enum variant. And layout.ty is the type itself for everything except
-                // enum variants, so it must be the array itself.
-                if let TyKind::Array(element_type, num_elements) = layout.ty.kind {
+                // can't be an enum variant. And ty_and_layout.ty is the type itself for everything
+                // except enum variants, so it must be the array itself.
+                if let TyKind::Array(element_type, num_elements) = ty_and_layout.ty.kind {
                     if let ConstKind::Value(ConstValue::Scalar(num_elements)) = num_elements.val {
                         let num_elements =
                             num_elements.to_u64().expect("expected bits, got a ptr?");
@@ -273,17 +292,20 @@ impl<'tcx> TypeCache<'tcx> {
                         unreachable!("array with non-const number of elements");
                     }
                 } else {
-                    unreachable!("Array field placement for non-Array type {:#?}", layout)
+                    unreachable!(
+                        "Array field placement for non-Array type {:#?}",
+                        ty_and_layout
+                    )
                 }
             }
 
-            FieldPlacement::Union(..) | FieldPlacement::Arbitrary { .. } => {
-                match &layout.variants {
-                    ty::layout::Variants::Single { .. } => {
-                        self.convert_single_variant_layout(layout)
+            FieldsShape::Union(..) | FieldsShape::Arbitrary { .. } => {
+                match &ty_and_layout.variants {
+                    rustc_target::abi::Variants::Single { .. } => {
+                        self.convert_single_variant_layout(ty_and_layout)
                     }
 
-                    ty::layout::Variants::Multiple { variants, .. } => {
+                    rustc_target::abi::Variants::Multiple { variants, .. } => {
                         // An enum. Lay it out like this:
                         // struct {
                         //     union {
@@ -298,12 +320,13 @@ impl<'tcx> TypeCache<'tcx> {
                         // if there's a tag discriminant field, it'll be in own_fields.
 
                         let mut union_field_types = Vec::with_capacity(variants.len() + 1);
-                        union_field_types.push(self.convert_adt_fields(layout));
+                        union_field_types.push(self.convert_adt_fields(ty_and_layout));
                         union_field_types.extend((0..variants.len()).into_iter().map(|i| {
                             let variant_layout =
-                                layout.for_variant(&self.make_layout_cx(), i.into());
+                                ty_and_layout.for_variant(&self.make_layout_cx(), i.into());
 
-                            if let ty::layout::Variants::Single { index } = &variant_layout.variants
+                            if let rustc_target::abi::Variants::Single { index } =
+                                &variant_layout.variants
                             {
                                 assert_eq!(index.as_usize(), i);
                             } else {
@@ -328,8 +351,8 @@ impl<'tcx> TypeCache<'tcx> {
                         let mut union_ty = Tree::new_record_type(TreeCode::UnionType);
                         union_ty.finish_record_type(
                             union_fields,
-                            layout.size.bytes(),
-                            layout.align.abi.bytes(),
+                            ty_and_layout.size.bytes(),
+                            ty_and_layout.align.abi.bytes(),
                         );
                         union_ty
                     }
@@ -338,22 +361,23 @@ impl<'tcx> TypeCache<'tcx> {
         }
     }
 
-    fn get_type_layout(&self, ty: Ty<'tcx>) -> TyLayout<'tcx> {
+    fn get_type_layout(&self, ty: Ty<'tcx>) -> TyAndLayout<'tcx> {
         self.tcx.layout_of(ParamEnv::reveal_all().and(ty)).unwrap()
     }
 
-    /// Converts the ABI described in `layout.details.abi`. Doesn't save in the type cache (use
-    /// `convert_type` for that.)
+    /// Converts the ABI described in `ty_and_layout.layout.abi`. Doesn't save in the type cache
+    /// (use `convert_type` for that.)
     ///
-    /// Note that `layout.ty` might not be the type itself if `layout` is an enum variant.
-    fn convert_layout(&mut self, layout: TyLayout<'tcx>) -> Tree {
-        use ty::layout::Abi::*;
+    /// Note that `ty_and_layout.ty` might not be the type itself if `ty_and_layout` is an enum
+    /// variant.
+    fn convert_layout(&mut self, ty_and_layout: TyAndLayout<'tcx>) -> Tree {
+        use rustc_target::abi::Abi::*;
 
-        match &layout.details.abi {
-            Scalar(scalar) => self.convert_scalar(layout, scalar),
+        match &ty_and_layout.layout.abi {
+            Scalar(scalar) => self.convert_scalar(ty_and_layout, &scalar),
 
             ScalarPair(scalar1_layout, scalar2_layout) => {
-                self.convert_scalar_pair(layout, scalar1_layout, scalar2_layout)
+                self.convert_scalar_pair(ty_and_layout, &scalar1_layout, &scalar2_layout)
             }
 
             // It never gets instantiated, so I think it shouldn't matter which type we use here.
@@ -361,12 +385,12 @@ impl<'tcx> TypeCache<'tcx> {
             Uninhabited => TreeIndex::VoidType.into(),
 
             Vector { element, count } => {
-                Tree::new_vector_type(self.convert_scalar(layout, element), *count)
+                Tree::new_vector_type(self.convert_scalar(ty_and_layout, element), *count)
             }
 
             Aggregate { .. } => {
-                assert!(!layout.details.abi.is_unsized());
-                self.convert_aggregate(layout)
+                assert!(!ty_and_layout.layout.abi.is_unsized());
+                self.convert_aggregate(ty_and_layout)
             }
         }
     }
@@ -376,17 +400,17 @@ impl<'tcx> TypeCache<'tcx> {
             return *tree;
         }
 
-        let layout = self.get_type_layout(ty);
+        let ty_and_layout = self.get_type_layout(ty);
 
         // This includes the unit type. For function return types, convert_fn_return_type()
         // converts it to void, but in other contexts, we treat it like other ZSTs, so that it can
         // be instantiated.
-        if layout.is_zst() {
+        if ty_and_layout.is_zst() {
             return Self::make_zst();
         }
 
         // convert_layout can recursively call convert_type
-        let mut tree = self.convert_layout(layout);
+        let mut tree = self.convert_layout(ty_and_layout);
         tree.set_type_name(Tree::new_identifier(format!("{}", ty)));
         *self.tys.entry(ty).or_insert(tree)
     }
@@ -449,17 +473,17 @@ impl<'tcx> ConversionCtx<'tcx> {
         }
     }
 
-    pub fn layout_of(&self, ty: Ty<'tcx>) -> TyLayout<'tcx> {
+    pub fn layout_of(&self, ty: Ty<'tcx>) -> TyAndLayout<'tcx> {
         self.tcx.layout_of(ParamEnv::reveal_all().and(ty)).unwrap()
     }
 
-    pub fn layout_of_place_ty(&self, place_ty: PlaceTy<'tcx>) -> TyLayout<'tcx> {
-        let layout = self.layout_of(place_ty.ty);
+    pub fn layout_of_place_ty(&self, place_ty: PlaceTy<'tcx>) -> TyAndLayout<'tcx> {
+        let ty_and_layout = self.layout_of(place_ty.ty);
         if let Some(variant_index) = place_ty.variant_index {
             let cx = self.type_cache.make_layout_cx();
-            layout.for_variant(&cx, variant_index)
+            ty_and_layout.for_variant(&cx, variant_index)
         } else {
-            layout
+            ty_and_layout
         }
     }
 
@@ -473,7 +497,9 @@ impl<'tcx> ConversionCtx<'tcx> {
             TyKind::Closure(def_id, substs) => (def_id, substs),
             _ => unreachable!(),
         };
-        Instance::resolve(self.tcx, ParamEnv::reveal_all(), def_id, substs).unwrap()
+        Instance::resolve(self.tcx, ParamEnv::reveal_all(), def_id, substs)
+            .unwrap()
+            .unwrap()
     }
 
     fn convert_instance_to_fn_ptr(&mut self, instance: Instance<'tcx>) -> Tree {
@@ -519,11 +545,14 @@ impl<'tcx> ConversionCtx<'tcx> {
             return vtable;
         }
 
-        let layout = self.layout_of(ty);
+        let ty_and_layout = self.layout_of(ty);
         let mut components: Vec<_> = vec![
             self.convert_instance_to_fn_ptr(Instance::resolve_drop_in_place(self.tcx, ty)),
-            Tree::new_int_constant(USIZE_KIND, layout.size.bytes().try_into().unwrap()),
-            Tree::new_int_constant(USIZE_KIND, layout.align.abi.bytes().try_into().unwrap()),
+            Tree::new_int_constant(USIZE_KIND, ty_and_layout.size.bytes().try_into().unwrap()),
+            Tree::new_int_constant(
+                USIZE_KIND,
+                ty_and_layout.align.abi.bytes().try_into().unwrap(),
+            ),
         ];
 
         let nullptr: Tree = TreeIndex::NullPointer.into();
@@ -723,14 +752,14 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             let caller_arg_range = spread_arg_index..(spread_arg_index + num_spread_args);
             internal_args.splice(caller_arg_range.clone(), [spread_arg_var].iter().copied());
 
-            let layout = conv_ctx.layout_of(spread_arg_ty);
+            let ty_and_layout = conv_ctx.layout_of(spread_arg_ty);
             for (i, (parm_decl, field_ty)) in parm_decls_for_caller[caller_arg_range]
                 .iter()
                 .zip(spread_arg_ty.tuple_fields())
                 .enumerate()
             {
                 let field_ty = conv_ctx.type_cache.convert_type(field_ty);
-                let field = Self::get_field(spread_arg_var, layout, i, field_ty);
+                let field = Self::get_field(spread_arg_var, ty_and_layout, i, field_ty);
                 stmt_list.push(Tree::new_assignment(field, *parm_decl));
             }
         }
@@ -816,11 +845,10 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         use ConstKind::*;
         use TyKind::*;
 
-        if let Unevaluated(def_id, substs, promoted) = const_.val {
-            const_ = &self
-                .tcx
-                .const_eval_resolve(ParamEnv::reveal_all(), def_id, substs, promoted, None)
-                .unwrap();
+        const_ = const_.eval(self.tcx, ParamEnv::reveal_all());
+
+        if let Unevaluated(..) = const_.val {
+            todo!("failed to evaluate const {:?}", const_);
         }
 
         match const_.val {
@@ -829,7 +857,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     Scalar::Raw { size, .. } => size,
                     _ => unreachable!(),
                 };
-                let size = Size::from_bytes(size.into());
+                let size = Size::from_bytes(size);
 
                 if size == Size::ZERO {
                     return self.make_zst_literal(const_.ty);
@@ -860,7 +888,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
     fn get_field(
         container: Tree,
-        container_layout: TyLayout<'tcx>,
+        container_layout: TyAndLayout<'tcx>,
         field: usize,
         field_ty: Tree,
     ) -> Tree {
@@ -906,18 +934,19 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             match elem {
                 Field(field, field_ty) => {
                     let field_ty = self.convert_type(field_ty);
-                    let layout = self.conv_ctx.layout_of_place_ty(component_ty);
-                    component = Self::get_field(component, layout, field.index(), field_ty);
+                    let ty_and_layout = self.conv_ctx.layout_of_place_ty(component_ty);
+                    component = Self::get_field(component, ty_and_layout, field.index(), field_ty);
                 }
 
                 Downcast(_, variant_index) => {
-                    let layout = self.conv_ctx.layout_of_place_ty(component_ty);
-                    let layout = layout
-                        .for_variant(&self.conv_ctx.type_cache.make_layout_cx(), *variant_index);
+                    let ty_and_layout = self.conv_ctx.layout_of_place_ty(component_ty);
+                    let ty_and_layout = ty_and_layout
+                        .for_variant(&self.conv_ctx.type_cache.make_layout_cx(), variant_index);
                     // TODO: convert_layout() doesn't guarantee this to be cached. But it will be,
                     // because it's an enum variant.
-                    let new_ptr_type =
-                        Tree::new_pointer_type(self.conv_ctx.type_cache.convert_layout(layout));
+                    let new_ptr_type = Tree::new_pointer_type(
+                        self.conv_ctx.type_cache.convert_layout(ty_and_layout),
+                    );
                     // Cast to a pointer to the variant
                     component = Tree::new_indirect_ref(Tree::new1(
                         TreeCode::NopExpr,
@@ -943,7 +972,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 }
 
                 Index(index) => {
-                    let index = self.get_local(*index);
+                    let index = self.get_local(index);
 
                     if Self::is_place_ty_slice(component_ty) {
                         let ptr = Tree::new_record_field_ref(component, 0);
@@ -1004,7 +1033,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     fn get_discriminant_field(
         &mut self,
         enum_tree: Tree,
-        enum_layout: TyLayout<'tcx>,
+        enum_layout: TyAndLayout<'tcx>,
         discr_index: usize,
     ) -> Tree {
         // TODO: types here are probably wrong or inaccurate
@@ -1021,15 +1050,15 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     // See codegen_clif discriminant.rs:codegen_get_discriminant
     fn get_discriminant(&mut self, place: &Place<'tcx>) -> Tree {
         let place_ty = self.get_place_ty(place);
-        let layout = self.conv_ctx.layout_of_place_ty(place_ty);
+        let ty_and_layout = self.conv_ctx.layout_of_place_ty(place_ty);
 
         let place_tree = self.get_place(place);
 
         // TODO: types here are probably wrong or inaccurate
-        match &layout.variants {
-            ty::layout::Variants::Single { index } => Tree::new_int_constant(
+        match &ty_and_layout.variants {
+            rustc_target::abi::Variants::Single { index } => Tree::new_int_constant(
                 ISIZE_KIND,
-                layout
+                ty_and_layout
                     .ty
                     .discriminant_for_variant(self.tcx, *index)
                     .unwrap()
@@ -1038,31 +1067,31 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     .unwrap(),
             ),
 
-            ty::layout::Variants::Multiple {
-                discr,
-                discr_index,
-                discr_kind,
+            rustc_target::abi::Variants::Multiple {
+                tag,
+                tag_encoding,
+                tag_field,
                 variants: _,
             } => {
-                let mut value = self.get_discriminant_field(place_tree, layout, *discr_index);
+                let mut value = self.get_discriminant_field(place_tree, ty_and_layout, *tag_field);
 
-                match discr_kind {
+                match tag_encoding {
                     // TODO: check signed value like clif does
-                    DiscriminantKind::Tag => {}
+                    TagEncoding::Direct => {}
 
-                    DiscriminantKind::Niche {
+                    TagEncoding::Niche {
                         dataful_variant,
                         niche_variants,
                         niche_start,
                     } => {
                         // Who knows what type our value field is. It might be a pointer for which
                         // we can't use regular math. Anyway, we need to cast it.
-                        let discr_ty = match discr.value {
-                            ty::layout::Primitive::Int(int_size, signed) => {
+                        let discr_ty = match tag.value {
+                            rustc_target::abi::Primitive::Int(int_size, signed) => {
                                 self.conv_ctx.type_cache.convert_integer(int_size, signed)
                             }
-                            ty::layout::Primitive::Pointer => ISIZE_KIND.into(),
-                            _ => todo!("Don't know how to handle discriminant type {:?}", discr),
+                            rustc_target::abi::Primitive::Pointer => ISIZE_KIND.into(),
+                            _ => todo!("Don't know how to handle tag encoding {:?}", tag),
                         };
                         value = Tree::new1(TreeCode::NopExpr, discr_ty, value);
 
@@ -1114,10 +1143,14 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
     /// Add statements that set an enum's discriminant field to self.stmt_list
     // See codegen_clif discriminant.rs:codegen_set_discriminant
-    fn add_set_discriminant(&mut self, place: &Place<'tcx>, variant_index: ty::layout::VariantIdx) {
+    fn add_set_discriminant(
+        &mut self,
+        place: &Place<'tcx>,
+        variant_index: rustc_target::abi::VariantIdx,
+    ) {
         let place_ty = self.get_place_ty(place);
-        let layout = self.conv_ctx.layout_of_place_ty(place_ty);
-        if layout
+        let ty_and_layout = self.conv_ctx.layout_of_place_ty(place_ty);
+        if ty_and_layout
             .for_variant(&self.conv_ctx.type_cache.make_layout_cx(), variant_index)
             .abi
             .is_uninhabited()
@@ -1127,30 +1160,30 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
         let place_tree = self.get_place(place);
 
-        match &layout.variants {
-            ty::layout::Variants::Single { index } => {
+        match &ty_and_layout.variants {
+            rustc_target::abi::Variants::Single { index } => {
                 // No need to actually set it.
                 assert_eq!(*index, variant_index);
             }
 
-            ty::layout::Variants::Multiple {
-                discr: _,
-                discr_index,
-                discr_kind,
+            rustc_target::abi::Variants::Multiple {
+                tag: _,
+                tag_encoding,
+                tag_field,
                 variants: _,
             } => {
-                let field = self.get_discriminant_field(place_tree, layout, *discr_index);
+                let field = self.get_discriminant_field(place_tree, ty_and_layout, *tag_field);
 
-                let value = match discr_kind {
-                    DiscriminantKind::Tag => {
-                        layout
+                let value = match tag_encoding {
+                    TagEncoding::Direct => {
+                        ty_and_layout
                             .ty
                             .discriminant_for_variant(self.tcx, variant_index)
                             .unwrap()
                             .val
                     }
 
-                    DiscriminantKind::Niche {
+                    TagEncoding::Niche {
                         dataful_variant,
                         niche_variants,
                         niche_start,
@@ -1251,7 +1284,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     self.convert_rvalue(&BinaryOp(*op, operand1.clone(), operand2.clone()));
                 // TODO: perform the check
                 let check_value =
-                    Tree::new_int_constant(self.convert_type(self.tcx.mk_bool()), true.into());
+                    Tree::new_int_constant(self.convert_type(self.tcx.types.bool), true.into());
                 let constructor = Tree::new_record_constructor(
                     type_,
                     &[
@@ -1566,8 +1599,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
             "panic_if_uninhabited" => {
                 let ty = substs.type_at(0);
-                let layout = self.conv_ctx.layout_of(ty);
-                if layout.abi.is_uninhabited() {
+                let ty_and_layout = self.conv_ctx.layout_of(ty);
+                if ty_and_layout.abi.is_uninhabited() {
                     self.convert_panic()
                 } else {
                     Self::make_void_value()
@@ -1654,7 +1687,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             let spread_arg = args.last().unwrap();
             let spread_arg_ty = spread_arg.ty(&self.body.local_decls, self.tcx);
 
-            let layout = self.conv_ctx.layout_of(spread_arg_ty);
+            let ty_and_layout = self.conv_ctx.layout_of(spread_arg_ty);
             let converted_spread_arg = converted_args.pop().unwrap();
             converted_args.extend(
                 spread_arg_ty
@@ -1662,7 +1695,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     .enumerate()
                     .map(|(i, field_ty)| {
                         let field_ty = self.convert_type(field_ty);
-                        Self::get_field(converted_spread_arg, layout, i, field_ty)
+                        Self::get_field(converted_spread_arg, ty_and_layout, i, field_ty)
                     }),
             );
         }
@@ -1879,12 +1912,13 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 destination,
                 cleanup: _,
                 from_hir_call: _,
+                fn_span: _,
             } => {
                 self.handle_call_terminator(func, args, destination);
             }
 
             DropAndReplace { .. }
-            | FalseEdges { .. }
+            | FalseEdge { .. }
             | FalseUnwind { .. }
             | GeneratorDrop
             | Yield { .. } => {
@@ -1897,6 +1931,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     terminator.kind
                 )
             }
+
+            InlineAsm { .. } => todo!("inline assembly not supported"),
         }
     }
 

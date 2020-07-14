@@ -40,12 +40,13 @@ RUST_SYSROOT = $(shell cd "$(RUST_SRC_DIR)" && rustc --print sysroot)
 $(RUST_LIB_BUILD_PATH): export GCC_BUILD_DIR=$(shell pwd)
 $(RUST_LIB_BUILD_PATH): $(RUST_SRCS)
 	(cd $(RUST_SRC_DIR); \
-	  cargo rustc -- -C link-args="-Wl,-rpath,$(RUST_SYSROOT)/lib")
+	  cargo rustc -- -C link-args="-L$(RUST_SYSROOT)/lib -Wl,-rpath,$(RUST_SYSROOT)/lib")
 
 rust1$(exeext): attribs.o $(rust1_OBJS) $(BACKEND) $(LIBDEPS) | $(RUST_LIB_BUILD_PATH)
 	+$(LLINKER) $(ALL_LINKERFLAGS) $(LDFLAGS) -o $@ \
 		  attribs.o $(rust1_OBJS) $(BACKEND) $(LIBS) $(BACKENDLIBS) \
 		  -L$(RUST_BUILD_DIR) -l$(RUST_LIB_NAME) \
+		  -L$(RUST_SYSROOT)/lib \
 		  -Wl,-rpath=$(DESTDIR)/$(libdir) \
 		  -Wl,-rpath=$(RUST_SYSROOT)/lib \
 		  -pthread
