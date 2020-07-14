@@ -71,18 +71,11 @@ impl Tree {
         unsafe { Tree(build2(code, (type_.0).0, arg0.0, arg1.0)) }
     }
 
-    pub fn new3(code: TreeCode, type_: Type, arg0: Tree, arg1: Tree, arg2: Tree) -> Self {
+    fn new3(code: TreeCode, type_: Type, arg0: Tree, arg1: Tree, arg2: Tree) -> Self {
         unsafe { Tree(build3(code, (type_.0).0, arg0.0, arg1.0, arg2.0)) }
     }
 
-    pub fn new4(
-        code: TreeCode,
-        type_: Type,
-        arg0: Tree,
-        arg1: Tree,
-        arg2: Tree,
-        arg3: Tree,
-    ) -> Self {
+    fn new4(code: TreeCode, type_: Type, arg0: Tree, arg1: Tree, arg2: Tree, arg3: Tree) -> Self {
         unsafe { Tree(build4(code, (type_.0).0, arg0.0, arg1.0, arg2.0, arg3.0)) }
     }
 
