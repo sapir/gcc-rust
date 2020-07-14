@@ -3,6 +3,7 @@
 use std::{
     convert::TryInto,
     ffi::{CStr, CString},
+    ops::{Deref, DerefMut},
     os::raw::c_char,
     ptr::{null_mut, NonNull},
 };
@@ -29,6 +30,10 @@ pub use crate::gcc_api_sys::IntegerTypeKind;
 pub use crate::gcc_api_sys::SizeTypeKind;
 pub use crate::gcc_api_sys::TreeCode;
 pub use crate::gcc_api_sys::TreeIndex;
+
+fn opt_tree_wrapper_to_tree(wrapper: Option<impl Deref<Target = Tree>>) -> Tree {
+    wrapper.as_deref().copied().unwrap_or(NULL_TREE)
+}
 
 #[repr(transparent)]
 #[derive(Clone, Copy)]
@@ -176,7 +181,7 @@ impl std::fmt::Debug for Tree {
 #[derive(Clone, Copy, Debug)]
 pub struct Expr(Tree);
 
-impl std::ops::Deref for Expr {
+impl Deref for Expr {
     type Target = Tree;
 
     fn deref(&self) -> &Tree {
@@ -184,7 +189,7 @@ impl std::ops::Deref for Expr {
     }
 }
 
-impl std::ops::DerefMut for Expr {
+impl DerefMut for Expr {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -276,7 +281,7 @@ impl Expr {
     }
 
     pub fn new_return_expr(value: Option<Expr>) -> Self {
-        let value = value.as_deref().copied().unwrap_or(NULL_TREE);
+        let value = opt_tree_wrapper_to_tree(value);
 
         Self(Tree::new1(TreeCode::ReturnExpr, Type::void(), value))
     }
@@ -287,10 +292,10 @@ impl Expr {
         supercontext: Expr,
         chain: Option<Expr>,
     ) -> Self {
-        let vars = vars.as_deref().copied().unwrap_or(NULL_TREE);
-        let subblocks = subblocks.as_deref().copied().unwrap_or(NULL_TREE);
+        let vars = opt_tree_wrapper_to_tree(vars);
+        let subblocks = opt_tree_wrapper_to_tree(subblocks);
         let supercontext = (supercontext.0).0;
-        let chain = chain.as_deref().copied().unwrap_or(NULL_TREE);
+        let chain = opt_tree_wrapper_to_tree(chain);
 
         unsafe {
             Self(Tree(build_block(
@@ -303,7 +308,7 @@ impl Expr {
     }
 
     pub fn new_bind_expr(vars: Option<Expr>, body: Expr, block: Expr) -> Self {
-        let vars = vars.as_deref().copied().unwrap_or(NULL_TREE);
+        let vars = opt_tree_wrapper_to_tree(vars);
 
         let bind_expr = Self(Tree::new3(
             TreeCode::BindExpr,
@@ -372,7 +377,7 @@ impl Expr {
         Self(Tree::new4(
             TreeCode::CaseLabelExpr,
             Type::void(),
-            value.as_deref().copied().unwrap_or(NULL_TREE),
+            opt_tree_wrapper_to_tree(value),
             NULL_TREE,
             *label_decl,
             NULL_TREE,
@@ -484,7 +489,7 @@ impl From<BuiltinFunction> for Expr {
 #[derive(Clone, Copy, Debug)]
 pub struct Type(Tree);
 
-impl std::ops::Deref for Type {
+impl Deref for Type {
     type Target = Tree;
 
     fn deref(&self) -> &Tree {
@@ -536,7 +541,7 @@ impl Type {
         unsafe {
             finish_record_type(
                 *self,
-                fields.head().as_deref().copied().unwrap_or(NULL_TREE),
+                opt_tree_wrapper_to_tree(fields.head()),
                 byte_size,
                 byte_alignment,
             );
@@ -713,7 +718,7 @@ impl DeclList {
     }
 }
 
-impl std::ops::Deref for DeclList {
+impl Deref for DeclList {
     type Target = [Expr];
 
     fn deref(&self) -> &Self::Target {
@@ -721,7 +726,7 @@ impl std::ops::Deref for DeclList {
     }
 }
 
-impl std::ops::DerefMut for DeclList {
+impl DerefMut for DeclList {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
@@ -768,7 +773,7 @@ impl Function {
 
     pub fn attach_parm_decls(&mut self, decls: &DeclList) {
         unsafe {
-            attach_fn_parm_decls(*self, decls.head().as_deref().copied().unwrap_or(NULL_TREE));
+            attach_fn_parm_decls(*self, opt_tree_wrapper_to_tree(decls.head()));
         }
     }
 
