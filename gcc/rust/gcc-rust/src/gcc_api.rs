@@ -220,25 +220,35 @@ impl Tree {
         unsafe { build_compound_literal_expr(type_, value, context) }
     }
 
-    pub fn new_component_ref(base_expr: Tree, field_decl: Tree) -> Self {
-        Self::new3(
+    pub fn get_field(self, field_decl: Tree) -> Self {
+        Tree::new3(
             TreeCode::ComponentRef,
             field_decl.get_type(),
-            base_expr,
+            self,
             field_decl,
             NULL_TREE,
         )
     }
 
-    pub fn new_record_field_ref(base_expr: Tree, field_index: usize) -> Self {
-        let field_decl = base_expr.get_type().get_record_type_field_decl(field_index);
-        Self::new_component_ref(base_expr, field_decl)
+    pub fn get_record_field(self, field_index: usize) -> Self {
+        let field_decl = self.get_type().get_record_type_field_decl(field_index);
+        self.get_field(field_decl)
     }
 
-    pub fn new_indirect_ref(base_expr: Tree) -> Self {
-        let pointer_ty = base_expr.get_type();
+    pub fn mk_pointer(mut self) -> Self {
+        if self.get_code() == TreeCode::VarDecl {
+            self.set_addressable(true);
+        }
+
+        let mut t = Tree::new1(TreeCode::AddrExpr, self.get_type().mk_pointer_type(), self);
+        t.set_constant(true);
+        t
+    }
+
+    pub fn deref_value(self) -> Self {
+        let pointer_ty = self.get_type();
         let deref_ty = pointer_ty.get_pointer_type_deref_type();
-        Self::new1(TreeCode::IndirectRef, deref_ty, base_expr)
+        Tree::new1(TreeCode::IndirectRef, deref_ty, self)
     }
 
     pub fn new_call_expr(loc: Location, return_type: Type, fn_ptr: Tree, args: &[Tree]) -> Self {
@@ -251,20 +261,6 @@ impl Tree {
                 args.as_ptr() as *const tree,
             ))
         }
-    }
-
-    pub fn new_addr_expr(mut value: Tree) -> Self {
-        if value.get_code() == TreeCode::VarDecl {
-            value.set_addressable(true);
-        }
-
-        let mut t = Tree::new1(
-            TreeCode::AddrExpr,
-            value.get_type().mk_pointer_type(),
-            value,
-        );
-        t.set_constant(true);
-        t
     }
 
     pub fn new_array_index_ref(element_type: Type, array_expr: Tree, index_expr: Tree) -> Self {

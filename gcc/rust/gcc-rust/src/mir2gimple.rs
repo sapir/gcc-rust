@@ -519,7 +519,7 @@ impl<'tcx> ConversionCtx<'tcx> {
         // TODO: move next line into Function::new
         let name = CString::new(&*name.as_str()).unwrap();
         let fn_decl = Function::new(&name, fn_type).0;
-        Tree::new_addr_expr(fn_decl)
+        fn_decl.mk_pointer()
     }
 
     fn make_vtable_name(
@@ -604,7 +604,7 @@ impl<'tcx> ConversionCtx<'tcx> {
         vtable_var.set_decl_initial(constructor);
         vtable_var.finalize_decl();
 
-        let vtable_ptr = Tree::new_addr_expr(vtable_var);
+        let vtable_ptr = vtable_var.mk_pointer();
         self.vtables.insert(key, vtable_ptr);
         vtable_ptr
     }
@@ -893,7 +893,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     ) -> Tree {
         let field_offset = container_layout.fields.offset(field);
 
-        let place_ptr = Tree::new_addr_expr(container);
+        let place_ptr = container.mk_pointer();
 
         let field_ptr = if field_offset == Size::ZERO {
             // We'll be converting as *(field_type*)&struct
@@ -912,7 +912,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         };
 
         let new_field_ptr_type = field_ty.mk_pointer_type();
-        Tree::new_indirect_ref(field_ptr.nop_cast(new_field_ptr_type))
+        field_ptr.nop_cast(new_field_ptr_type).deref_value()
     }
 
     fn get_place(&mut self, place: &Place<'tcx>) -> Tree {
@@ -949,9 +949,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                         .convert_layout(ty_and_layout)
                         .mk_pointer_type();
                     // Cast to a pointer to the variant
-                    component = Tree::new_indirect_ref(
-                        Tree::new_addr_expr(component).nop_cast(new_ptr_type),
-                    );
+                    component = component.mk_pointer().nop_cast(new_ptr_type).deref_value();
                 }
 
                 Deref => {
@@ -968,7 +966,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                             .mk_pointer_type();
                         component = component.nop_cast(pointer_ty);
 
-                        component = Tree::new_indirect_ref(component);
+                        component = component.deref_value();
                     }
                 }
 
@@ -976,9 +974,9 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     let index = self.get_local(index);
 
                     if Self::is_place_ty_slice(component_ty) {
-                        let ptr = Tree::new_record_field_ref(component, 0);
+                        let ptr = component.get_record_field(0);
                         let ptr = Self::pointer_plus_element_index(ptr, index);
-                        component = Tree::new_indirect_ref(ptr);
+                        component = ptr.deref_value();
                     } else {
                         // an ArrayType's type field contains its element type
                         let array_type = component.get_type();
@@ -1323,7 +1321,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     };
                     self.get_place(&place)
                 } else {
-                    Tree::new_addr_expr(self.get_place(place))
+                    self.get_place(place).mk_pointer()
                 }
             }
 
@@ -1351,7 +1349,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                         if is_fat_ptr(old_ty) && !is_fat_ptr(new_ty) {
                             // Get the regular part of the pointer
-                            Tree::new_record_field_ref(self.convert_operand(operand), 0)
+                            self.convert_operand(operand)
+                                .get_record_field(0)
                                 .nop_cast(self.convert_type(new_ty))
                         } else {
                             // TODO: enum -> discriminant cast, see clif base.rs
@@ -1411,7 +1410,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                         ) = (&old_ty.kind, &new_ty.kind)
                         {
                             if array_element_type == slice_element_type {
-                                let ptr = Tree::new_addr_expr(self.convert_operand(operand));
+                                let ptr = self.convert_operand(operand).mk_pointer();
                                 let slice_type = self.convert_type(new_ty);
                                 return self.make_slice(
                                     slice_type,
@@ -1478,7 +1477,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                 let place_ty = self.get_place_ty(place);
                 if Self::is_place_ty_slice(place_ty) {
-                    Tree::new_record_field_ref(place_expr, 1)
+                    place_expr.get_record_field(1)
                 } else {
                     todo!("Len of non-slice {:?} of type {:?}", place, place_ty);
                 }
@@ -1502,7 +1501,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         Tree::new_call_expr(
             UNKNOWN_LOCATION,
             Type::void(),
-            Tree::new_addr_expr(BuiltinFunction::Unreachable.into()),
+            Tree::from(BuiltinFunction::Unreachable).mk_pointer(),
             &[],
         )
     }
@@ -1557,7 +1556,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 Tree::new_call_expr(
                     UNKNOWN_LOCATION,
                     Type::void(),
-                    Tree::new_addr_expr(BuiltinFunction::Memcpy.into()),
+                    Tree::from(BuiltinFunction::Memcpy).mk_pointer(),
                     // src and dst are swapped here
                     &[converted_args[1], converted_args[0], all_size],
                 )
@@ -1630,8 +1629,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 if let InstanceDef::Virtual(_, index) = instance.def {
                     // The virtual method call's first argument in the IR is the trait object.
                     let trait_object = converted_args[0];
-                    let obj_ptr = Tree::new_record_field_ref(trait_object, 0);
-                    let vtable_ptr = Tree::new_record_field_ref(trait_object, 1);
+                    let obj_ptr = trait_object.get_record_field(0);
+                    let vtable_ptr = trait_object.get_record_field(1);
 
                     // The first argument should actually be the object pointer.
                     converted_args[0] = obj_ptr;
@@ -1647,7 +1646,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     // so we can treat them as elements in a function pointer array.
                     let index = Tree::new_int_constant(USIZE_KIND, (index + 3).try_into().unwrap());
                     let fn_ptr_ptr = Self::pointer_plus_element_index(vtable_ptr, index);
-                    Tree::new_indirect_ref(fn_ptr_ptr)
+                    fn_ptr_ptr.deref_value()
                 } else {
                     self.conv_ctx.convert_instance_to_fn_ptr(instance)
                 }
