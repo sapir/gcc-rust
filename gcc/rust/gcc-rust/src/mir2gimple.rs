@@ -1489,11 +1489,11 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         let name = self.tcx.item_name(def_id);
 
         match &*name.as_str() {
-            "wrapping_add" => {
+            "unchecked_add" | "wrapping_add" => {
                 converted_args[0].typed_math(TreeCode::PlusExpr, call_expr_type, converted_args[1])
             }
 
-            "wrapping_sub" => {
+            "unchecked_sub" | "wrapping_sub" => {
                 converted_args[0].typed_math(TreeCode::MinusExpr, call_expr_type, converted_args[1])
             }
 
