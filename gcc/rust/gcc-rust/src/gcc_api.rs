@@ -199,9 +199,38 @@ impl Expr {
         Self(Tree::from(TreeIndex::NullPointer))
     }
 
-    // TODO: remove
-    pub fn new2(code: TreeCode, type_: Type, arg0: Expr, arg1: Expr) -> Self {
-        Self(Tree::new2(code, type_, *arg0, *arg1))
+    /// Perform a binary expression, keeping the old type
+    fn math(self, code: TreeCode, other: Expr) -> Self {
+        Self(Tree::new2(code, self.get_type(), *self, *other))
+    }
+
+    /// Perform a binary expression, setting the result type
+    pub fn typed_math(self, code: TreeCode, type_: Type, other: Expr) -> Self {
+        Self(Tree::new2(code, type_, *self, *other))
+    }
+
+    pub fn plus(self, other: Expr) -> Self {
+        self.math(TreeCode::PlusExpr, other)
+    }
+
+    pub fn minus(self, other: Expr) -> Self {
+        self.math(TreeCode::MinusExpr, other)
+    }
+
+    pub fn mult(self, other: Expr) -> Self {
+        self.math(TreeCode::MultExpr, other)
+    }
+
+    pub fn pointer_plus(self, other: Expr) -> Self {
+        self.math(TreeCode::PointerPlusExpr, other)
+    }
+
+    pub fn equal_value(self, other: Expr) -> Self {
+        self.typed_math(TreeCode::EqExpr, Type::bool(), other)
+    }
+
+    pub fn less_than_or_equal_value(self, other: Expr) -> Self {
+        self.typed_math(TreeCode::LeExpr, Type::bool(), other)
     }
 
     /// Cast to type_ with a NopExpr
