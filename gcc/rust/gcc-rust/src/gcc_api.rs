@@ -63,7 +63,7 @@ impl Tree {
         unsafe { Tree(build0(code, (type_.0).0)) }
     }
 
-    pub fn new1(code: TreeCode, type_: Type, arg0: Tree) -> Self {
+    fn new1(code: TreeCode, type_: Type, arg0: Tree) -> Self {
         unsafe { Tree(build1(code, (type_.0).0, arg0.0)) }
     }
 
@@ -84,6 +84,35 @@ impl Tree {
         arg3: Tree,
     ) -> Self {
         unsafe { Tree(build4(code, (type_.0).0, arg0.0, arg1.0, arg2.0, arg3.0)) }
+    }
+
+    pub fn mk_void_value() -> Tree {
+        Tree::new1(TreeCode::NopExpr, Type::void(), NULL_TREE)
+    }
+
+    /// Cast to type_ with a NopExpr
+    pub fn nop_cast(self, type_: Type) -> Self {
+        Tree::new1(TreeCode::NopExpr, type_, self)
+    }
+
+    /// Cast to type_ with a ConvertExpr
+    pub fn convert_cast(self, type_: Type) -> Self {
+        Tree::new1(TreeCode::ConvertExpr, type_, self)
+    }
+
+    /// Cast to type_ with a ViewConvertExpr
+    pub fn view_convert_cast(self, type_: Type) -> Self {
+        Tree::new1(TreeCode::ViewConvertExpr, type_, self)
+    }
+
+    /// Apply a NegateExpr to this tree
+    pub fn negate(self, type_: Type) -> Self {
+        Tree::new1(TreeCode::NegateExpr, type_, self)
+    }
+
+    /// Apply a BitNotExpr to this tree
+    pub fn bit_not(self, type_: Type) -> Self {
+        Tree::new1(TreeCode::BitNotExpr, type_, self)
     }
 
     pub fn new_translation_unit_decl(name: Tree) -> Self {

@@ -588,7 +588,7 @@ impl<'tcx> ConversionCtx<'tcx> {
 
         let components = components
             .into_iter()
-            .map(|comp| Tree::new1(TreeCode::ConvertExpr, conv_void_ptr_ty, comp))
+            .map(|comp| comp.convert_cast(conv_void_ptr_ty))
             .collect::<Vec<_>>();
         // Why no need for a compound_literal_expr here? I don't know.
         let constructor = Tree::new_array_constructor(conv_array_ty, &components);
@@ -912,7 +912,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         };
 
         let new_field_ptr_type = field_ty.mk_pointer_type();
-        Tree::new_indirect_ref(Tree::new1(TreeCode::NopExpr, new_field_ptr_type, field_ptr))
+        Tree::new_indirect_ref(field_ptr.nop_cast(new_field_ptr_type))
     }
 
     fn get_place(&mut self, place: &Place<'tcx>) -> Tree {
@@ -949,11 +949,9 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                         .convert_layout(ty_and_layout)
                         .mk_pointer_type();
                     // Cast to a pointer to the variant
-                    component = Tree::new_indirect_ref(Tree::new1(
-                        TreeCode::NopExpr,
-                        new_ptr_type,
-                        Tree::new_addr_expr(component),
-                    ));
+                    component = Tree::new_indirect_ref(
+                        Tree::new_addr_expr(component).nop_cast(new_ptr_type),
+                    );
                 }
 
                 Deref => {
@@ -968,7 +966,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                             .type_cache
                             .convert_layout(dereffed_layout)
                             .mk_pointer_type();
-                        component = Tree::new1(TreeCode::NopExpr, pointer_ty, component);
+                        component = component.nop_cast(pointer_ty);
 
                         component = Tree::new_indirect_ref(component);
                     }
@@ -1007,10 +1005,6 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         Tree::new_compound_literal_expr(ty, constructor, self.fn_decl.0)
     }
 
-    fn make_void_value() -> Tree {
-        Tree::new1(TreeCode::NopExpr, Type::void(), NULL_TREE)
-    }
-
     fn get_operand_ty(&mut self, operand: &Operand<'tcx>) -> Ty<'tcx> {
         operand.ty(&self.body.local_decls, self.tcx)
     }
@@ -1029,7 +1023,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         if value.get_type().is_compatible(required_type) {
             value
         } else {
-            Tree::new1(TreeCode::NopExpr, required_type, value)
+            value.nop_cast(required_type)
         }
     }
 
@@ -1096,7 +1090,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                             rustc_target::abi::Primitive::Pointer => ISIZE_KIND.into(),
                             _ => todo!("Don't know how to handle tag encoding {:?}", tag),
                         };
-                        value = Tree::new1(TreeCode::NopExpr, discr_ty, value);
+                        value = value.nop_cast(discr_ty);
 
                         let niche_start = *niche_start;
                         if niche_start != 0 {
@@ -1229,7 +1223,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
     fn make_trait_object(&mut self, trait_obj_ty: Type, obj_ptr: Tree, vtable_ptr: Tree) -> Tree {
         let void_ptr_ty = Type::void().mk_pointer_type();
-        let obj_ptr = Tree::new1(TreeCode::ConvertExpr, void_ptr_ty, obj_ptr);
+        let obj_ptr = obj_ptr.convert_cast(void_ptr_ty);
         let constructor = Tree::new_record_constructor(
             trait_obj_ty,
             &[
@@ -1302,11 +1296,10 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             UnaryOp(op, operand) => {
                 let operand = self.convert_operand(operand);
                 let type_ = self.convert_type(rv.ty(self.body, self.tcx));
-                let code = match op {
-                    UnOp::Neg => TreeCode::NegateExpr,
-                    UnOp::Not => TreeCode::BitNotExpr,
-                };
-                Tree::new1(code, type_, operand)
+                match op {
+                    UnOp::Neg => operand.negate(type_),
+                    UnOp::Not => operand.bit_not(type_),
+                }
             }
 
             NullaryOp(op, ty) => match op {
@@ -1317,11 +1310,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             Discriminant(place) => {
                 // The discriminant field might be any int type, but it's expected to be an isize,
                 // so we need to cast it.
-                Tree::new1(
-                    TreeCode::NopExpr,
-                    ISIZE_KIND.into(),
-                    self.get_discriminant(place),
-                )
+                self.get_discriminant(place).nop_cast(ISIZE_KIND.into())
             }
 
             Ref(_, _, place) | AddressOf(_, place) => {
@@ -1362,26 +1351,18 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                         if is_fat_ptr(old_ty) && !is_fat_ptr(new_ty) {
                             // Get the regular part of the pointer
-                            Tree::new1(
-                                TreeCode::NopExpr,
-                                self.convert_type(new_ty),
-                                Tree::new_record_field_ref(self.convert_operand(operand), 0),
-                            )
+                            Tree::new_record_field_ref(self.convert_operand(operand), 0)
+                                .nop_cast(self.convert_type(new_ty))
                         } else {
                             // TODO: enum -> discriminant cast, see clif base.rs
-                            Tree::new1(
-                                TreeCode::ConvertExpr,
-                                self.convert_type(new_ty),
-                                self.convert_operand(operand),
-                            )
+                            self.convert_operand(operand)
+                                .convert_cast(self.convert_type(new_ty))
                         }
                     }
 
-                    Pointer(MutToConstPointer) | Pointer(UnsafeFnPointer) => Tree::new1(
-                        TreeCode::NopExpr,
-                        self.convert_type(new_ty),
-                        self.convert_operand(operand),
-                    ),
+                    Pointer(MutToConstPointer) | Pointer(UnsafeFnPointer) => self
+                        .convert_operand(operand)
+                        .nop_cast(self.convert_type(new_ty)),
 
                     Pointer(ReifyFnPointer) => {
                         let fn_def = self.get_operand_ty(operand);
@@ -1554,16 +1535,13 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             // Convert pointer to isize, do the math, then convert back.
             // TODO: The whole point of this intrinsic is not to do the conversion, is it really
             // necessary?
-            "arith_offset" => Tree::new1(
-                TreeCode::NopExpr,
-                call_expr_type,
-                Tree::new2(
-                    TreeCode::PlusExpr,
-                    ISIZE_KIND.into(),
-                    Tree::new1(TreeCode::NopExpr, ISIZE_KIND.into(), converted_args[0]),
-                    converted_args[1],
-                ),
-            ),
+            "arith_offset" => Tree::new2(
+                TreeCode::PlusExpr,
+                ISIZE_KIND.into(),
+                converted_args[0].nop_cast(ISIZE_KIND.into()),
+                converted_args[1],
+            )
+            .nop_cast(call_expr_type),
 
             "copy_nonoverlapping" => {
                 let copied_type = substs.type_at(0);
@@ -1588,8 +1566,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             "offset" => {
                 let ptr = converted_args[0];
                 // gcc wants a usize instead of an isize
-                let offset =
-                    Tree::new1(TreeCode::ConvertExpr, USIZE_KIND.into(), converted_args[1]);
+                let offset = converted_args[1].convert_cast(USIZE_KIND.into());
                 Tree::new2(TreeCode::PointerPlusExpr, ptr.get_type(), ptr, offset)
             }
 
@@ -1606,16 +1583,16 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 if ty_and_layout.abi.is_uninhabited() {
                     self.convert_panic()
                 } else {
-                    Self::make_void_value()
+                    Tree::mk_void_value()
                 }
             }
 
             "assume" => {
                 eprintln!("Warning: Ignoring 'assume' intrinsic {:?}", original_args);
-                Self::make_void_value()
+                Tree::mk_void_value()
             }
 
-            "transmute" => Tree::new1(TreeCode::ViewConvertExpr, call_expr_type, converted_args[0]),
+            "transmute" => converted_args[0].view_convert_cast(call_expr_type),
 
             _ => todo!("rust intrinsic {:?}", name),
         }
@@ -1663,7 +1640,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                     let fn_ptr_ptr_ty = self.tcx.mk_imm_ptr(self.tcx.mk_fn_ptr(fn_sig));
                     let fn_ptr_ptr_ty = self.convert_type(fn_ptr_ptr_ty);
-                    let vtable_ptr = Tree::new1(TreeCode::ConvertExpr, fn_ptr_ptr_ty, vtable_ptr);
+                    let vtable_ptr = vtable_ptr.convert_cast(fn_ptr_ptr_ty);
 
                     // Increase index by 3 to skip drop-in-place and 2 size fields.
                     // This assumes that the size fields are the same size as function pointers,
@@ -1712,7 +1689,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 .collect::<Vec<_>>(),
         );
         let func_ty_by_abi = func_ty_by_abi.mk_pointer_type();
-        let func = Tree::new1(TreeCode::NopExpr, func_ty_by_abi, func);
+        let func = func.nop_cast(func_ty_by_abi);
 
         Tree::new_call_expr(UNKNOWN_LOCATION, call_expr_type, func, &converted_args)
     }
