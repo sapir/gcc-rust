@@ -245,7 +245,7 @@ impl Tree {
 
         let mut t = Tree::new1(
             TreeCode::AddrExpr,
-            Type::new_pointer_type(value.get_type()),
+            value.get_type().mk_pointer_type(),
             value,
         );
         t.set_constant(true);
@@ -444,8 +444,8 @@ impl Type {
         Self(Tree(unsafe { make_unsigned_type(bits as i32) }))
     }
 
-    pub fn new_pointer_type(to_type: Type) -> Self {
-        Self(Tree(unsafe { build_pointer_type((to_type.0).0) }))
+    pub fn mk_pointer_type(self) -> Self {
+        Self(Tree(unsafe { build_pointer_type((self.0).0) }))
     }
 
     pub fn new_vector_type(element_type: Type, num_elements: u64) -> Self {
