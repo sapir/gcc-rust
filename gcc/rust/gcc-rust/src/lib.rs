@@ -1,6 +1,5 @@
 #![feature(rustc_private)]
 
-#[macro_use]
 extern crate log;
 extern crate log_settings;
 extern crate rustc;
@@ -16,8 +15,10 @@ extern crate rustc_span;
 extern crate rustc_target;
 extern crate syntax;
 
-mod gcc_api;
+#[allow(non_snake_case)]
 mod gcc_api_sys;
+
+mod gcc_api;
 mod mir2gimple;
 
 use gcc_api::get_crate_type;
