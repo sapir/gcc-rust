@@ -235,13 +235,6 @@ impl Tree {
         Self::new_component_ref(base_expr, field_decl)
     }
 
-    // Get the type pointed to by a pointer type tree
-    pub fn get_pointer_type_deref_type(&self) -> Type {
-        assert_eq!(self.get_code(), TreeCode::PointerType);
-        // Type of dereffed item is stored in POINTER_TYPE's TREE_TYPE
-        self.get_type()
-    }
-
     pub fn new_indirect_ref(base_expr: Tree) -> Self {
         let pointer_ty = base_expr.get_type();
         let deref_ty = pointer_ty.get_pointer_type_deref_type();
@@ -492,6 +485,13 @@ impl Type {
 
     pub fn is_compatible(self, other: Type) -> bool {
         unsafe { useless_type_conversion_p((self.0).0, (other.0).0) }
+    }
+
+    // Get the type pointed to by a pointer type tree
+    pub fn get_pointer_type_deref_type(&self) -> Type {
+        assert_eq!(self.get_code(), TreeCode::PointerType);
+        // Type of dereffed item is stored in POINTER_TYPE's TREE_TYPE
+        self.get_type()
     }
 }
 
