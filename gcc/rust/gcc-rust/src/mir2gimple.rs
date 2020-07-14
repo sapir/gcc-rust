@@ -100,13 +100,13 @@ const USIZE_KIND: SizeTypeKind = SizeTypeKind::UnsignedBytes;
 const ISIZE_KIND: SizeTypeKind = SizeTypeKind::SignedBytes;
 
 struct ConvertedFnSig {
-    pub return_type: Tree,
-    pub arg_types: Vec<Tree>,
+    pub return_type: Type,
+    pub arg_types: Vec<Type>,
 }
 
 impl ConvertedFnSig {
-    fn into_function_type(self) -> Tree {
-        Tree::new_function_type(self.return_type, &self.arg_types)
+    fn into_function_type(self) -> Type {
+        Type::new_function_type(self.return_type, &self.arg_types)
     }
 }
 
@@ -116,9 +116,9 @@ impl ConvertedFnSig {
 struct TypeCache<'tcx> {
     tcx: TyCtxt<'tcx>,
     /// "Regular" type cache
-    tys: HashMap<Ty<'tcx>, Tree>,
+    tys: HashMap<Ty<'tcx>, Type>,
     /// Special cache for enum variants (and structs) because enum variants aren't full types
-    variants: HashMap<(Ty<'tcx>, rustc_target::abi::VariantIdx), Tree>,
+    variants: HashMap<(Ty<'tcx>, rustc_target::abi::VariantIdx), Type>,
 }
 
 impl<'tcx> TypeCache<'tcx> {
@@ -130,9 +130,9 @@ impl<'tcx> TypeCache<'tcx> {
         }
     }
 
-    fn make_zst() -> Tree {
+    fn make_zst() -> Type {
         // Use an empty struct.
-        let mut ty = Tree::new_record_type(TreeCode::RecordType);
+        let mut ty = Type::new_record_type(TreeCode::RecordType);
         ty.finish_record_type(DeclList::new(TreeCode::FieldDecl, &[]), 0, 1);
         ty
     }
@@ -144,18 +144,18 @@ impl<'tcx> TypeCache<'tcx> {
         }
     }
 
-    fn convert_integer(&mut self, integer: rustc_target::abi::Integer, signed: bool) -> Tree {
+    fn convert_integer(&mut self, integer: rustc_target::abi::Integer, signed: bool) -> Type {
         use rustc_target::abi::Integer::*;
 
         match (integer, signed) {
-            (I8, true) => Tree::new_signed_int_type(8),
-            (I16, true) => Tree::new_signed_int_type(16),
-            (I32, true) => Tree::new_signed_int_type(32),
-            (I64, true) => Tree::new_signed_int_type(64),
-            (I8, false) => Tree::new_unsigned_int_type(8),
-            (I16, false) => TreeIndex::Uint16Type.into(),
-            (I32, false) => TreeIndex::Uint32Type.into(),
-            (I64, false) => TreeIndex::Uint64Type.into(),
+            (I8, true) => Type::new_signed_int_type(8),
+            (I16, true) => Type::new_signed_int_type(16),
+            (I32, true) => Type::new_signed_int_type(32),
+            (I64, true) => Type::new_signed_int_type(64),
+            (I8, false) => Type::new_unsigned_int_type(8),
+            (I16, false) => Type::u16(),
+            (I32, false) => Type::u32(),
+            (I64, false) => Type::u64(),
             (I128, _) => todo!("128-bit int"),
         }
     }
@@ -166,16 +166,16 @@ impl<'tcx> TypeCache<'tcx> {
         scalar_layout: &rustc_target::abi::Scalar,
         base_ty_and_layout: TyAndLayout<'tcx>,
         offset: Size,
-    ) -> Tree {
+    ) -> Type {
         use rustc_target::abi::Primitive::*;
 
         match scalar_layout.value {
             Int(int_type, signed) => self.convert_integer(int_type, signed),
 
-            Pointer => Tree::new_pointer_type(
+            Pointer => Type::new_pointer_type(
                 base_ty_and_layout
                     .pointee_info_at(&self.make_layout_cx(), offset)
-                    .map_or(TreeIndex::VoidType.into(), |pointee| {
+                    .map_or(Type::void(), |pointee| {
                         self.convert_integer(
                             rustc_target::abi::Integer::approximate_align(&self.tcx, pointee.align),
                             false,
@@ -190,7 +190,7 @@ impl<'tcx> TypeCache<'tcx> {
         &mut self,
         ty_and_layout: TyAndLayout<'tcx>,
         scalar: &rustc_target::abi::Scalar,
-    ) -> Tree {
+    ) -> Type {
         self.convert_scalar_at_offset(scalar, ty_and_layout, Size::ZERO)
     }
 
@@ -199,7 +199,7 @@ impl<'tcx> TypeCache<'tcx> {
         ty_and_layout: TyAndLayout<'tcx>,
         scalar1_layout: &rustc_target::abi::Scalar,
         scalar2_layout: &rustc_target::abi::Scalar,
-    ) -> Tree {
+    ) -> Type {
         let scalar1_ofs = Size::ZERO;
         let scalar2_ofs = scalar1_layout
             .value
@@ -218,7 +218,7 @@ impl<'tcx> TypeCache<'tcx> {
         fields[1].set_decl_name(Tree::new_identifier("field1"));
         fields[1].place_field_manually(scalar2_ofs.bytes());
 
-        let mut ty = Tree::new_record_type(TreeCode::RecordType);
+        let mut ty = Type::new_record_type(TreeCode::RecordType);
         ty.finish_record_type(
             fields,
             ty_and_layout.layout.size.bytes(),
@@ -228,7 +228,7 @@ impl<'tcx> TypeCache<'tcx> {
     }
 
     /// Returns a RecordType with the fields in ty_and_layout.fields. Ignores the variant cache.
-    fn convert_adt_fields(&mut self, ty_and_layout: TyAndLayout<'tcx>) -> Tree {
+    fn convert_adt_fields(&mut self, ty_and_layout: TyAndLayout<'tcx>) -> Type {
         let layout_cx = self.make_layout_cx();
 
         let field_types = (0..ty_and_layout.fields.count())
@@ -245,7 +245,7 @@ impl<'tcx> TypeCache<'tcx> {
             field.place_field_manually(ty_and_layout.fields.offset(i).bytes());
         }
 
-        let mut ty = Tree::new_record_type(TreeCode::RecordType);
+        let mut ty = Type::new_record_type(TreeCode::RecordType);
         ty.finish_record_type(
             fields,
             ty_and_layout.size.bytes(),
@@ -254,7 +254,7 @@ impl<'tcx> TypeCache<'tcx> {
         ty
     }
 
-    fn convert_single_variant_layout(&mut self, ty_and_layout: TyAndLayout<'tcx>) -> Tree {
+    fn convert_single_variant_layout(&mut self, ty_and_layout: TyAndLayout<'tcx>) -> Type {
         let variant_index =
             if let rustc_target::abi::Variants::Single { index } = &ty_and_layout.variants {
                 *index
@@ -272,7 +272,7 @@ impl<'tcx> TypeCache<'tcx> {
         tree
     }
 
-    fn convert_aggregate(&mut self, ty_and_layout: TyAndLayout<'tcx>) -> Tree {
+    fn convert_aggregate(&mut self, ty_and_layout: TyAndLayout<'tcx>) -> Type {
         use rustc_target::abi::FieldsShape;
 
         match &ty_and_layout.fields {
@@ -287,7 +287,7 @@ impl<'tcx> TypeCache<'tcx> {
                         let num_elements =
                             num_elements.to_u64().expect("expected bits, got a ptr?");
                         // TODO: use stride for alignment
-                        Tree::new_array_type(self.convert_type(element_type), num_elements)
+                        Type::new_array_type(self.convert_type(element_type), num_elements)
                     } else {
                         unreachable!("array with non-const number of elements");
                     }
@@ -348,7 +348,7 @@ impl<'tcx> TypeCache<'tcx> {
                             field.place_field_manually(0);
                         }
 
-                        let mut union_ty = Tree::new_record_type(TreeCode::UnionType);
+                        let mut union_ty = Type::new_record_type(TreeCode::UnionType);
                         union_ty.finish_record_type(
                             union_fields,
                             ty_and_layout.size.bytes(),
@@ -370,7 +370,7 @@ impl<'tcx> TypeCache<'tcx> {
     ///
     /// Note that `ty_and_layout.ty` might not be the type itself if `ty_and_layout` is an enum
     /// variant.
-    fn convert_layout(&mut self, ty_and_layout: TyAndLayout<'tcx>) -> Tree {
+    fn convert_layout(&mut self, ty_and_layout: TyAndLayout<'tcx>) -> Type {
         use rustc_target::abi::Abi::*;
 
         match &ty_and_layout.layout.abi {
@@ -382,10 +382,10 @@ impl<'tcx> TypeCache<'tcx> {
 
             // It never gets instantiated, so I think it shouldn't matter which type we use here.
             // Also, it's nice if a pointer to this can be a void*.
-            Uninhabited => TreeIndex::VoidType.into(),
+            Uninhabited => Type::void(),
 
             Vector { element, count } => {
-                Tree::new_vector_type(self.convert_scalar(ty_and_layout, element), *count)
+                Type::new_vector_type(self.convert_scalar(ty_and_layout, element), *count)
             }
 
             Aggregate { .. } => {
@@ -395,7 +395,7 @@ impl<'tcx> TypeCache<'tcx> {
         }
     }
 
-    fn convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
+    fn convert_type(&mut self, ty: Ty<'tcx>) -> Type {
         if let Some(tree) = self.tys.get(ty) {
             return *tree;
         }
@@ -411,13 +411,13 @@ impl<'tcx> TypeCache<'tcx> {
 
         // convert_layout can recursively call convert_type
         let mut tree = self.convert_layout(ty_and_layout);
-        tree.set_type_name(Tree::new_identifier(format!("{}", ty)));
+        tree.set_name(Tree::new_identifier(format!("{}", ty)));
         *self.tys.entry(ty).or_insert(tree)
     }
 
-    fn convert_fn_return_type(&mut self, ty: Ty<'tcx>) -> Tree {
+    fn convert_fn_return_type(&mut self, ty: Ty<'tcx>) -> Type {
         if ty.is_unit() {
-            TreeIndex::VoidType.into()
+            Type::void()
         } else {
             self.convert_type(ty)
         }
@@ -443,7 +443,7 @@ impl<'tcx> TypeCache<'tcx> {
         }
     }
 
-    fn convert_local_decl_types<I>(&mut self, body: &Body<'tcx>, iter: I) -> Vec<Tree>
+    fn convert_local_decl_types<I>(&mut self, body: &Body<'tcx>, iter: I) -> Vec<Type>
     where
         I: Iterator<Item = Local>,
     {
@@ -451,7 +451,7 @@ impl<'tcx> TypeCache<'tcx> {
             .collect()
     }
 
-    fn convert_fn_arg_types(&mut self, body: &Body<'tcx>) -> Vec<Tree> {
+    fn convert_fn_arg_types(&mut self, body: &Body<'tcx>) -> Vec<Type> {
         self.convert_local_decl_types(body, body.args_iter())
     }
 }
@@ -691,7 +691,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             None
         };
 
-        let fn_type = Tree::new_function_type(return_type, &arg_types_for_caller);
+        let fn_type = Type::new_function_type(return_type, &arg_types_for_caller);
 
         let name = CString::new(&*name.as_str()).unwrap();
         let mut fn_decl = Function::new(&name, fn_type);
@@ -791,7 +791,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         }
     }
 
-    fn convert_type(&mut self, ty: Ty<'tcx>) -> Tree {
+    fn convert_type(&mut self, ty: Ty<'tcx>) -> Type {
         let ty = self.conv_ctx.tcx.subst_and_normalize_erasing_regions(
             self.instance.substs,
             ParamEnv::reveal_all(),
@@ -831,7 +831,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             TreeCode::MultExpr,
             element_index.get_type(),
             element_index,
-            element_type.get_type_size_bytes(),
+            element_type.get_size_bytes(),
         );
         Tree::new2(
             TreeCode::PointerPlusExpr,
@@ -890,7 +890,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         container: Tree,
         container_layout: TyAndLayout<'tcx>,
         field: usize,
-        field_ty: Tree,
+        field_ty: Type,
     ) -> Tree {
         let field_offset = container_layout.fields.offset(field);
 
@@ -912,7 +912,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             )
         };
 
-        let new_field_ptr_type = Tree::new_pointer_type(field_ty);
+        let new_field_ptr_type = Type::new_pointer_type(field_ty);
         Tree::new_indirect_ref(Tree::new1(TreeCode::NopExpr, new_field_ptr_type, field_ptr))
     }
 
@@ -944,7 +944,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                         .for_variant(&self.conv_ctx.type_cache.make_layout_cx(), variant_index);
                     // TODO: convert_layout() doesn't guarantee this to be cached. But it will be,
                     // because it's an enum variant.
-                    let new_ptr_type = Tree::new_pointer_type(
+                    let new_ptr_type = Type::new_pointer_type(
                         self.conv_ctx.type_cache.convert_layout(ty_and_layout),
                     );
                     // Cast to a pointer to the variant
@@ -962,7 +962,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     } else {
                         // Pointer type conversion is messed up. Fix it before dereferencing.
                         let dereffed_layout = self.conv_ctx.layout_of_place_ty(next_component_ty);
-                        let pointer_ty = Tree::new_pointer_type(
+                        let pointer_ty = Type::new_pointer_type(
                             self.conv_ctx.type_cache.convert_layout(dereffed_layout),
                         );
                         component = Tree::new1(TreeCode::NopExpr, pointer_ty, component);
@@ -1005,7 +1005,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     }
 
     fn make_void_value() -> Tree {
-        Tree::new1(TreeCode::NopExpr, TreeIndex::VoidType.into(), NULL_TREE)
+        Tree::new1(TreeCode::NopExpr, Type::void(), NULL_TREE)
     }
 
     fn get_operand_ty(&mut self, operand: &Operand<'tcx>) -> Ty<'tcx> {
@@ -1022,8 +1022,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         }
     }
 
-    fn implicit_cast(value: Tree, required_type: Tree) -> Tree {
-        if value.get_type().is_compatible_type(required_type) {
+    fn implicit_cast(value: Tree, required_type: Type) -> Tree {
+        if value.get_type().is_compatible(required_type) {
             value
         } else {
             Tree::new1(TreeCode::NopExpr, required_type, value)
@@ -1112,7 +1112,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                             niche_variants.end().as_u32() - niche_variants.start().as_u32();
                         let is_in_range = Tree::new2(
                             TreeCode::LeExpr,
-                            TreeIndex::BooleanType.into(),
+                            Type::bool(),
                             value,
                             Tree::new_int_constant(value.get_type(), relative_max.into()),
                         );
@@ -1209,7 +1209,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         }
     }
 
-    fn make_slice(&mut self, converted_slice_type: Tree, ptr_expr: Tree, length: u64) -> Tree {
+    fn make_slice(&mut self, converted_slice_type: Type, ptr_expr: Tree, length: u64) -> Tree {
         let constructor = Tree::new_record_constructor(
             converted_slice_type,
             &[
@@ -1224,8 +1224,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         Tree::new_compound_literal_expr(converted_slice_type, constructor, self.fn_decl.0)
     }
 
-    fn make_trait_object(&mut self, trait_obj_ty: Tree, obj_ptr: Tree, vtable_ptr: Tree) -> Tree {
-        let void_ptr_ty = Tree::new_pointer_type(TreeIndex::VoidType.into());
+    fn make_trait_object(&mut self, trait_obj_ty: Type, obj_ptr: Tree, vtable_ptr: Tree) -> Tree {
+        let void_ptr_ty = Type::new_pointer_type(Type::void());
         let obj_ptr = Tree::new1(TreeCode::ConvertExpr, void_ptr_ty, obj_ptr);
         let constructor = Tree::new_record_constructor(
             trait_obj_ty,
@@ -1307,7 +1307,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             }
 
             NullaryOp(op, ty) => match op {
-                NullOp::SizeOf => self.convert_type(ty).get_type_size_bytes(),
+                NullOp::SizeOf => self.convert_type(ty).get_size_bytes(),
                 NullOp::Box => todo!("NullOp::Box, type {:?}", ty),
             },
 
@@ -1517,7 +1517,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     fn convert_unreachable(&self) -> Tree {
         Tree::new_call_expr(
             UNKNOWN_LOCATION,
-            TreeIndex::VoidType.into(),
+            Type::void(),
             Tree::new_addr_expr(BuiltinFunction::Unreachable.into()),
             &[],
         )
@@ -1529,7 +1529,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         substs: SubstsRef<'tcx>,
         original_args: &[Operand<'tcx>],
         converted_args: &[Tree],
-        call_expr_type: Tree,
+        call_expr_type: Type,
     ) -> Tree {
         let name = self.tcx.item_name(def_id);
 
@@ -1564,7 +1564,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
             "copy_nonoverlapping" => {
                 let copied_type = substs.type_at(0);
-                let element_size = self.convert_type(copied_type).get_type_size_bytes();
+                let element_size = self.convert_type(copied_type).get_size_bytes();
                 let all_size = Tree::new2(
                     TreeCode::MultExpr,
                     USIZE_KIND.into(),
@@ -1575,7 +1575,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                 Tree::new_call_expr(
                     UNKNOWN_LOCATION,
-                    TreeIndex::VoidType.into(),
+                    Type::void(),
                     Tree::new_addr_expr(BuiltinFunction::Memcpy.into()),
                     // src and dst are swapped here
                     &[converted_args[1], converted_args[0], all_size],
@@ -1592,7 +1592,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
             "size_of" => {
                 let of_type = substs.type_at(0);
-                self.convert_type(of_type).get_type_size_bytes()
+                self.convert_type(of_type).get_size_bytes()
             }
 
             "unreachable" => self.convert_unreachable(),
@@ -1622,7 +1622,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         &mut self,
         func: &Operand<'tcx>,
         args: &[Operand<'tcx>],
-        call_expr_type: Tree,
+        call_expr_type: Type,
     ) -> Tree {
         let mut converted_args = args
             .into_iter()
@@ -1701,14 +1701,14 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         }
 
         // Force the ABI we're using
-        let func_ty_by_abi = Tree::new_function_type(
+        let func_ty_by_abi = Type::new_function_type(
             call_expr_type,
             &converted_args
                 .iter()
                 .map(|arg| arg.get_type())
                 .collect::<Vec<_>>(),
         );
-        let func_ty_by_abi = Tree::new_pointer_type(func_ty_by_abi);
+        let func_ty_by_abi = Type::new_pointer_type(func_ty_by_abi);
         let func = Tree::new1(TreeCode::NopExpr, func_ty_by_abi, func);
 
         Tree::new_call_expr(UNKNOWN_LOCATION, call_expr_type, func, &converted_args)
@@ -1732,7 +1732,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             let returns_void = place_ty.ty.is_unit();
             (call_expr_type, returns_void)
         } else {
-            (TreeIndex::VoidType.into(), true)
+            (Type::void(), true)
         };
 
         let call_expr = self.convert_call_expr(func, args, call_expr_type);
@@ -1854,7 +1854,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                     let cond = Tree::new2(
                         TreeCode::EqExpr,
-                        TreeIndex::BooleanType.into(),
+                        Type::bool(),
                         self.convert_operand(discr),
                         Tree::new_int_constant(switch_ty_tree, value.try_into().unwrap()),
                     );
