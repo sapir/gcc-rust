@@ -172,16 +172,15 @@ impl<'tcx> TypeCache<'tcx> {
         match scalar_layout.value {
             Int(int_type, signed) => self.convert_integer(int_type, signed),
 
-            Pointer => Type::new_pointer_type(
-                base_ty_and_layout
-                    .pointee_info_at(&self.make_layout_cx(), offset)
-                    .map_or(Type::void(), |pointee| {
-                        self.convert_integer(
-                            rustc_target::abi::Integer::approximate_align(&self.tcx, pointee.align),
-                            false,
-                        )
-                    }),
-            ),
+            Pointer => base_ty_and_layout
+                .pointee_info_at(&self.make_layout_cx(), offset)
+                .map_or(Type::void(), |pointee| {
+                    self.convert_integer(
+                        rustc_target::abi::Integer::approximate_align(&self.tcx, pointee.align),
+                        false,
+                    )
+                })
+                .mk_pointer_type(),
             _ => todo!("scalar layout value type {:?}", scalar_layout.value),
         }
     }
@@ -912,7 +911,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             )
         };
 
-        let new_field_ptr_type = Type::new_pointer_type(field_ty);
+        let new_field_ptr_type = field_ty.mk_pointer_type();
         Tree::new_indirect_ref(Tree::new1(TreeCode::NopExpr, new_field_ptr_type, field_ptr))
     }
 
@@ -944,9 +943,11 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                         .for_variant(&self.conv_ctx.type_cache.make_layout_cx(), variant_index);
                     // TODO: convert_layout() doesn't guarantee this to be cached. But it will be,
                     // because it's an enum variant.
-                    let new_ptr_type = Type::new_pointer_type(
-                        self.conv_ctx.type_cache.convert_layout(ty_and_layout),
-                    );
+                    let new_ptr_type = self
+                        .conv_ctx
+                        .type_cache
+                        .convert_layout(ty_and_layout)
+                        .mk_pointer_type();
                     // Cast to a pointer to the variant
                     component = Tree::new_indirect_ref(Tree::new1(
                         TreeCode::NopExpr,
@@ -962,9 +963,11 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     } else {
                         // Pointer type conversion is messed up. Fix it before dereferencing.
                         let dereffed_layout = self.conv_ctx.layout_of_place_ty(next_component_ty);
-                        let pointer_ty = Type::new_pointer_type(
-                            self.conv_ctx.type_cache.convert_layout(dereffed_layout),
-                        );
+                        let pointer_ty = self
+                            .conv_ctx
+                            .type_cache
+                            .convert_layout(dereffed_layout)
+                            .mk_pointer_type();
                         component = Tree::new1(TreeCode::NopExpr, pointer_ty, component);
 
                         component = Tree::new_indirect_ref(component);
@@ -1225,7 +1228,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     }
 
     fn make_trait_object(&mut self, trait_obj_ty: Type, obj_ptr: Tree, vtable_ptr: Tree) -> Tree {
-        let void_ptr_ty = Type::new_pointer_type(Type::void());
+        let void_ptr_ty = Type::void().mk_pointer_type();
         let obj_ptr = Tree::new1(TreeCode::ConvertExpr, void_ptr_ty, obj_ptr);
         let constructor = Tree::new_record_constructor(
             trait_obj_ty,
@@ -1708,7 +1711,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 .map(|arg| arg.get_type())
                 .collect::<Vec<_>>(),
         );
-        let func_ty_by_abi = Type::new_pointer_type(func_ty_by_abi);
+        let func_ty_by_abi = func_ty_by_abi.mk_pointer_type();
         let func = Tree::new1(TreeCode::NopExpr, func_ty_by_abi, func);
 
         Tree::new_call_expr(UNKNOWN_LOCATION, call_expr_type, func, &converted_args)
