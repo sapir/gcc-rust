@@ -1538,7 +1538,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
             "unreachable" => self.convert_unreachable(),
 
-            "panic_if_uninhabited" => {
+            "assert_inhabited" => {
                 let ty = substs.type_at(0);
                 let ty_and_layout = self.conv_ctx.layout_of(ty);
                 if ty_and_layout.abi.is_uninhabited() {
