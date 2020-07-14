@@ -826,18 +826,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     /// Do C-style pointer math - multiply the element index by the element type to get the offset
     fn pointer_plus_element_index(pointer: Expr, element_index: Expr) -> Expr {
         let element_type = pointer.get_type().get_pointer_type_deref_type();
-        let offset = Expr::new2(
-            TreeCode::MultExpr,
-            element_index.get_type(),
-            element_index,
-            element_type.get_size_bytes(),
-        );
-        Expr::new2(
-            TreeCode::PointerPlusExpr,
-            pointer.get_type(),
-            pointer,
-            offset,
-        )
+        let offset = element_index.mult(element_type.get_size_bytes());
+        pointer.pointer_plus(offset)
     }
 
     fn convert_const(&mut self, mut const_: &Const<'tcx>) -> Expr {
@@ -902,12 +892,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             let field_offset =
                 Expr::new_int_constant(USIZE_KIND, field_offset.bytes().try_into().unwrap());
 
-            Expr::new2(
-                TreeCode::PointerPlusExpr,
-                place_ptr.get_type(),
-                place_ptr,
-                field_offset,
-            )
+            place_ptr.pointer_plus(field_offset)
         };
 
         let new_field_ptr_type = field_ty.mk_pointer_type();
@@ -1091,37 +1076,25 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                         let niche_start = *niche_start;
                         if niche_start != 0 {
-                            value = Expr::new2(
-                                TreeCode::MinusExpr,
+                            value = value.minus(Expr::new_int_constant(
                                 value.get_type(),
-                                value,
-                                Expr::new_int_constant(
-                                    value.get_type(),
-                                    niche_start.try_into().unwrap(),
-                                ),
-                            );
+                                niche_start.try_into().unwrap(),
+                            ));
                         }
 
                         let relative_max =
                             niche_variants.end().as_u32() - niche_variants.start().as_u32();
-                        let is_in_range = Expr::new2(
-                            TreeCode::LeExpr,
-                            Type::bool(),
-                            value,
-                            Expr::new_int_constant(value.get_type(), relative_max.into()),
-                        );
+                        let is_in_range = value.less_than_or_equal_value(Expr::new_int_constant(
+                            value.get_type(),
+                            relative_max.into(),
+                        ));
 
                         value = Expr::new_cond_expr(
                             is_in_range,
-                            Expr::new2(
-                                TreeCode::PlusExpr,
+                            value.plus(Expr::new_int_constant(
                                 value.get_type(),
-                                value,
-                                Expr::new_int_constant(
-                                    value.get_type(),
-                                    niche_variants.start().as_u32().into(),
-                                ),
-                            ),
+                                niche_variants.start().as_u32().into(),
+                            )),
                             Expr::new_int_constant(
                                 value.get_type(),
                                 dataful_variant.as_u32().into(),
@@ -1269,7 +1242,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 let type_ = self.convert_type(rv.ty(self.body, self.tcx));
                 let operand1 = Self::implicit_cast(self.convert_operand(operand1), type_);
                 let operand2 = Self::implicit_cast(self.convert_operand(operand2), type_);
-                Expr::new2(code, type_, operand1, operand2)
+                operand1.typed_math(code, type_, operand2)
             }
 
             CheckedBinaryOp(op, operand1, operand2) => {
@@ -1516,39 +1489,29 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         let name = self.tcx.item_name(def_id);
 
         match &*name.as_str() {
-            "wrapping_add" => Expr::new2(
-                TreeCode::PlusExpr,
-                call_expr_type,
-                converted_args[0],
-                converted_args[1],
-            ),
+            "wrapping_add" => {
+                converted_args[0].typed_math(TreeCode::PlusExpr, call_expr_type, converted_args[1])
+            }
 
-            "wrapping_sub" => Expr::new2(
-                TreeCode::MinusExpr,
-                call_expr_type,
-                converted_args[0],
-                converted_args[1],
-            ),
+            "wrapping_sub" => {
+                converted_args[0].typed_math(TreeCode::MinusExpr, call_expr_type, converted_args[1])
+            }
 
             // Convert pointer to isize, do the math, then convert back.
             // TODO: The whole point of this intrinsic is not to do the conversion, is it really
             // necessary?
-            "arith_offset" => Expr::new2(
-                TreeCode::PlusExpr,
-                ISIZE_KIND.into(),
-                converted_args[0].nop_cast(ISIZE_KIND.into()),
-                converted_args[1],
-            )
-            .nop_cast(call_expr_type),
+            "arith_offset" => converted_args[0]
+                .nop_cast(ISIZE_KIND.into())
+                .plus(converted_args[1])
+                .nop_cast(call_expr_type),
 
             "copy_nonoverlapping" => {
                 let copied_type = substs.type_at(0);
                 let element_size = self.convert_type(copied_type).get_size_bytes();
-                let all_size = Expr::new2(
+                // TODO: nop_expr before multiplying?
+                let all_size = element_size.typed_math(
                     TreeCode::MultExpr,
                     USIZE_KIND.into(),
-                    // TODO: nop_expr?
-                    element_size,
                     converted_args[2],
                 );
 
@@ -1565,7 +1528,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 let ptr = converted_args[0];
                 // gcc wants a usize instead of an isize
                 let offset = converted_args[1].convert_cast(USIZE_KIND.into());
-                Expr::new2(TreeCode::PointerPlusExpr, ptr.get_type(), ptr, offset)
+                ptr.pointer_plus(offset)
             }
 
             "size_of" => {
@@ -1830,12 +1793,12 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 if values.len() == 1 {
                     let value = values[0];
 
-                    let cond = Expr::new2(
-                        TreeCode::EqExpr,
-                        Type::bool(),
-                        self.convert_operand(discr),
-                        Expr::new_int_constant(switch_ty_tree, value.try_into().unwrap()),
-                    );
+                    let cond = self
+                        .convert_operand(discr)
+                        .equal_value(Expr::new_int_constant(
+                            switch_ty_tree,
+                            value.try_into().unwrap(),
+                        ));
 
                     let if_eq_expr = self.convert_goto(targets[0]);
                     let else_expr = self.convert_goto(targets[1]);
