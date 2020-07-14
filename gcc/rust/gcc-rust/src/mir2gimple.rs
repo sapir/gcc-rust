@@ -458,8 +458,8 @@ impl<'tcx> TypeCache<'tcx> {
 struct ConversionCtx<'tcx> {
     tcx: TyCtxt<'tcx>,
     type_cache: TypeCache<'tcx>,
-    vtables: HashMap<(Ty<'tcx>, Option<PolyExistentialTraitRef<'tcx>>), Tree>,
-    translation_unit_decl: Tree,
+    vtables: HashMap<(Ty<'tcx>, Option<PolyExistentialTraitRef<'tcx>>), Expr>,
+    translation_unit_decl: Expr,
 }
 
 impl<'tcx> ConversionCtx<'tcx> {
@@ -468,7 +468,7 @@ impl<'tcx> ConversionCtx<'tcx> {
             tcx,
             type_cache: TypeCache::new(tcx),
             vtables: HashMap::new(),
-            translation_unit_decl: Tree::new_translation_unit_decl(NULL_TREE),
+            translation_unit_decl: Expr::new_translation_unit_decl(NULL_TREE),
         }
     }
 
@@ -501,7 +501,7 @@ impl<'tcx> ConversionCtx<'tcx> {
             .unwrap()
     }
 
-    fn convert_instance_to_fn_ptr(&mut self, instance: Instance<'tcx>) -> Tree {
+    fn convert_instance_to_fn_ptr(&mut self, instance: Instance<'tcx>) -> Expr {
         let fn_sig = fn_sig_for_fn_abi(self.tcx, instance);
         match fn_sig.abi() {
             // Call instruction conversion removes intrinsics, so RustIntrinsic shouldn't show up
@@ -538,7 +538,7 @@ impl<'tcx> ConversionCtx<'tcx> {
         &mut self,
         ty: Ty<'tcx>,
         trait_ref: Option<PolyExistentialTraitRef<'tcx>>,
-    ) -> Tree {
+    ) -> Expr {
         let key = (ty, trait_ref);
         if let Some(&vtable) = self.vtables.get(&key) {
             return vtable;
@@ -547,14 +547,14 @@ impl<'tcx> ConversionCtx<'tcx> {
         let ty_and_layout = self.layout_of(ty);
         let mut components: Vec<_> = vec![
             self.convert_instance_to_fn_ptr(Instance::resolve_drop_in_place(self.tcx, ty)),
-            Tree::new_int_constant(USIZE_KIND, ty_and_layout.size.bytes().try_into().unwrap()),
-            Tree::new_int_constant(
+            Expr::new_int_constant(USIZE_KIND, ty_and_layout.size.bytes().try_into().unwrap()),
+            Expr::new_int_constant(
                 USIZE_KIND,
                 ty_and_layout.align.abi.bytes().try_into().unwrap(),
             ),
         ];
 
-        let nullptr: Tree = TreeIndex::NullPointer.into();
+        let nullptr = Expr::null_ptr();
 
         let methods_root;
         let methods = if let Some(trait_ref) = trait_ref {
@@ -591,10 +591,10 @@ impl<'tcx> ConversionCtx<'tcx> {
             .map(|comp| comp.convert_cast(conv_void_ptr_ty))
             .collect::<Vec<_>>();
         // Why no need for a compound_literal_expr here? I don't know.
-        let constructor = Tree::new_array_constructor(conv_array_ty, &components);
+        let constructor = Expr::new_array_constructor(conv_array_ty, &components);
 
         let vtable_var_name = self.make_vtable_name(ty, trait_ref, self.vtables.len());
-        let mut vtable_var = Tree::new_var_decl(
+        let mut vtable_var = Expr::new_var_decl(
             UNKNOWN_LOCATION,
             Tree::new_identifier(vtable_var_name),
             conv_array_ty,
@@ -617,15 +617,15 @@ struct FunctionConversion<'a, 'tcx, 'body> {
     body: &'body Body<'tcx>,
     fn_decl: Function,
     return_type_is_void: bool,
-    res_decl: Tree,
+    res_decl: Expr,
     /// If res_decl is a struct, and one of its fields is also a struct, and we try to set it
     /// directly, we crash gcc. This may be due to the struct being anonymous. Anyway, if we
     /// do it via a temporary variable, no crash. This is the temporary variable.
-    tmp_var_decl_for_res: Tree,
-    args: Vec<Tree>,
+    tmp_var_decl_for_res: Expr,
+    args: Vec<Expr>,
     vars: DeclList,
-    block_labels: Vec<Tree>,
-    main_gcc_block: Tree,
+    block_labels: Vec<Expr>,
+    main_gcc_block: Expr,
     stmt_list: StatementList,
 }
 
@@ -697,12 +697,12 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         fn_decl.set_external(false);
         fn_decl.set_preserve_p(true);
 
-        let main_gcc_block = Tree::new_block(NULL_TREE, NULL_TREE, fn_decl.0, NULL_TREE);
+        let main_gcc_block = Expr::new_block(None, None, fn_decl.0, None);
         fn_decl.set_initial(main_gcc_block);
 
         let mut stmt_list = StatementList::new();
 
-        let res_decl = Tree::new_result_decl(UNKNOWN_LOCATION, return_type);
+        let res_decl = Expr::new_result_decl(UNKNOWN_LOCATION, return_type);
         fn_decl.set_result(res_decl);
 
         for (i, decl) in body.local_decls.iter_enumerated() {
@@ -759,7 +759,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             {
                 let field_ty = conv_ctx.type_cache.convert_type(field_ty);
                 let field = Self::get_field(spread_arg_var, ty_and_layout, i, field_ty);
-                stmt_list.push(Tree::new_assignment(field, *parm_decl));
+                stmt_list.push(Expr::new_assignment(field, *parm_decl));
             }
         }
 
@@ -768,7 +768,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         let block_labels = body
             .basic_blocks()
             .iter()
-            .map(|_bb| Tree::new_label_decl(UNKNOWN_LOCATION, fn_decl.0))
+            .map(|_bb| Expr::new_label_decl(UNKNOWN_LOCATION, fn_decl.0))
             .collect::<Vec<_>>();
 
         let tcx = conv_ctx.tcx;
@@ -800,7 +800,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         self.conv_ctx.type_cache.convert_type(ty)
     }
 
-    fn get_local(&self, local: Local) -> Tree {
+    fn get_local(&self, local: Local) -> Expr {
         let n = local.as_usize();
         if n == 0 {
             self.tmp_var_decl_for_res
@@ -824,15 +824,15 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     }
 
     /// Do C-style pointer math - multiply the element index by the element type to get the offset
-    fn pointer_plus_element_index(pointer: Tree, element_index: Tree) -> Tree {
+    fn pointer_plus_element_index(pointer: Expr, element_index: Expr) -> Expr {
         let element_type = pointer.get_type().get_pointer_type_deref_type();
-        let offset = Tree::new2(
+        let offset = Expr::new2(
             TreeCode::MultExpr,
             element_index.get_type(),
             element_index,
             element_type.get_size_bytes(),
         );
-        Tree::new2(
+        Expr::new2(
             TreeCode::PointerPlusExpr,
             pointer.get_type(),
             pointer,
@@ -840,18 +840,17 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         )
     }
 
-    fn convert_const(&mut self, mut const_: &Const<'tcx>) -> Tree {
-        use ConstKind::*;
+    fn convert_const(&mut self, mut const_: &Const<'tcx>) -> Expr {
         use TyKind::*;
 
         const_ = const_.eval(self.tcx, ParamEnv::reveal_all());
 
-        if let Unevaluated(..) = const_.val {
+        if let ConstKind::Unevaluated(..) = const_.val {
             todo!("failed to evaluate const {:?}", const_);
         }
 
         match const_.val {
-            Value(ConstValue::Scalar(scalar @ Scalar::Raw { .. })) => {
+            ConstKind::Value(ConstValue::Scalar(scalar @ Scalar::Raw { .. })) => {
                 let size = match scalar {
                     Scalar::Raw { size, .. } => size,
                     _ => unreachable!(),
@@ -863,7 +862,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 }
 
                 match const_.ty.kind {
-                    Bool | Int(_) | Uint(_) | Char => Tree::new_int_constant(
+                    Bool | Int(_) | Uint(_) | Char => Expr::new_int_constant(
                         self.convert_type(const_.ty),
                         scalar.assert_bits(size).try_into().unwrap(),
                     ),
@@ -886,11 +885,11 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     }
 
     fn get_field(
-        container: Tree,
+        container: Expr,
         container_layout: TyAndLayout<'tcx>,
         field: usize,
         field_ty: Type,
-    ) -> Tree {
+    ) -> Expr {
         let field_offset = container_layout.fields.offset(field);
 
         let place_ptr = container.mk_pointer();
@@ -901,9 +900,9 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         } else {
             // We'll be converting as *(field_type*)((void*)&struct + field_offset)
             let field_offset =
-                Tree::new_int_constant(USIZE_KIND, field_offset.bytes().try_into().unwrap());
+                Expr::new_int_constant(USIZE_KIND, field_offset.bytes().try_into().unwrap());
 
-            Tree::new2(
+            Expr::new2(
                 TreeCode::PointerPlusExpr,
                 place_ptr.get_type(),
                 place_ptr,
@@ -915,7 +914,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         field_ptr.nop_cast(new_field_ptr_type).deref_value()
     }
 
-    fn get_place(&mut self, place: &Place<'tcx>) -> Tree {
+    fn get_place(&mut self, place: &Place<'tcx>) -> Expr {
         let base = self.get_local(place.local);
 
         // Now apply any projections
@@ -983,7 +982,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                         assert_eq!(array_type.get_code(), TreeCode::ArrayType);
                         let element_type = array_type.get_type();
 
-                        component = Tree::new_array_index_ref(element_type, component, index);
+                        component = Expr::new_array_index_ref(element_type, component, index);
                     }
                 }
 
@@ -996,18 +995,18 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         component
     }
 
-    fn make_zst_literal(&mut self, ty: Ty<'tcx>) -> Tree {
+    fn make_zst_literal(&mut self, ty: Ty<'tcx>) -> Expr {
         // TypeCache::make_zst() converts ZSTs to empty structs, so construct an empty struct
         let ty = self.convert_type(ty);
-        let constructor = Tree::new_record_constructor(ty, &[], &[]);
-        Tree::new_compound_literal_expr(ty, constructor, self.fn_decl.0)
+        let constructor = Expr::new_record_constructor(ty, &[], &[]);
+        Expr::new_compound_literal_expr(ty, constructor, self.fn_decl.0)
     }
 
     fn get_operand_ty(&mut self, operand: &Operand<'tcx>) -> Ty<'tcx> {
         operand.ty(&self.body.local_decls, self.tcx)
     }
 
-    fn convert_operand(&mut self, operand: &Operand<'tcx>) -> Tree {
+    fn convert_operand(&mut self, operand: &Operand<'tcx>) -> Expr {
         use Operand::*;
 
         match operand {
@@ -1017,7 +1016,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         }
     }
 
-    fn implicit_cast(value: Tree, required_type: Type) -> Tree {
+    fn implicit_cast(value: Expr, required_type: Type) -> Expr {
         if value.get_type().is_compatible(required_type) {
             value
         } else {
@@ -1027,10 +1026,10 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
     fn get_discriminant_field(
         &mut self,
-        enum_tree: Tree,
+        enum_tree: Expr,
         enum_layout: TyAndLayout<'tcx>,
         discr_index: usize,
-    ) -> Tree {
+    ) -> Expr {
         // TODO: types here are probably wrong or inaccurate
         let field = Field::new(discr_index);
         let field_layout = enum_layout
@@ -1043,7 +1042,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
     /// Get an expression for an enum's discriminant field
     // See codegen_clif discriminant.rs:codegen_get_discriminant
-    fn get_discriminant(&mut self, place: &Place<'tcx>) -> Tree {
+    fn get_discriminant(&mut self, place: &Place<'tcx>) -> Expr {
         let place_ty = self.get_place_ty(place);
         let ty_and_layout = self.conv_ctx.layout_of_place_ty(place_ty);
 
@@ -1051,7 +1050,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
         // TODO: types here are probably wrong or inaccurate
         match &ty_and_layout.variants {
-            rustc_target::abi::Variants::Single { index } => Tree::new_int_constant(
+            rustc_target::abi::Variants::Single { index } => Expr::new_int_constant(
                 ISIZE_KIND,
                 ty_and_layout
                     .ty
@@ -1092,11 +1091,11 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                         let niche_start = *niche_start;
                         if niche_start != 0 {
-                            value = Tree::new2(
+                            value = Expr::new2(
                                 TreeCode::MinusExpr,
                                 value.get_type(),
                                 value,
-                                Tree::new_int_constant(
+                                Expr::new_int_constant(
                                     value.get_type(),
                                     niche_start.try_into().unwrap(),
                                 ),
@@ -1105,25 +1104,25 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
                         let relative_max =
                             niche_variants.end().as_u32() - niche_variants.start().as_u32();
-                        let is_in_range = Tree::new2(
+                        let is_in_range = Expr::new2(
                             TreeCode::LeExpr,
                             Type::bool(),
                             value,
-                            Tree::new_int_constant(value.get_type(), relative_max.into()),
+                            Expr::new_int_constant(value.get_type(), relative_max.into()),
                         );
 
-                        value = Tree::new_cond_expr(
+                        value = Expr::new_cond_expr(
                             is_in_range,
-                            Tree::new2(
+                            Expr::new2(
                                 TreeCode::PlusExpr,
                                 value.get_type(),
                                 value,
-                                Tree::new_int_constant(
+                                Expr::new_int_constant(
                                     value.get_type(),
                                     niche_variants.start().as_u32().into(),
                                 ),
                             ),
-                            Tree::new_int_constant(
+                            Expr::new_int_constant(
                                 value.get_type(),
                                 dataful_variant.as_u32().into(),
                             ),
@@ -1196,16 +1195,16 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     }
                 };
 
-                let value = Tree::new_int_constant(field.get_type(), value.try_into().unwrap());
+                let value = Expr::new_int_constant(field.get_type(), value.try_into().unwrap());
 
-                let stmt = Tree::new_assignment(field, value);
+                let stmt = Expr::new_assignment(field, value);
                 self.stmt_list.push(stmt);
             }
         }
     }
 
-    fn make_slice(&mut self, converted_slice_type: Type, ptr_expr: Tree, length: u64) -> Tree {
-        let constructor = Tree::new_record_constructor(
+    fn make_slice(&mut self, converted_slice_type: Type, ptr_expr: Expr, length: u64) -> Expr {
+        let constructor = Expr::new_record_constructor(
             converted_slice_type,
             &[
                 converted_slice_type.get_record_type_field_decl(0),
@@ -1213,16 +1212,16 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             ],
             &[
                 ptr_expr,
-                Tree::new_int_constant(USIZE_KIND, length.try_into().unwrap()),
+                Expr::new_int_constant(USIZE_KIND, length.try_into().unwrap()),
             ],
         );
-        Tree::new_compound_literal_expr(converted_slice_type, constructor, self.fn_decl.0)
+        Expr::new_compound_literal_expr(converted_slice_type, constructor, self.fn_decl.0)
     }
 
-    fn make_trait_object(&mut self, trait_obj_ty: Type, obj_ptr: Tree, vtable_ptr: Tree) -> Tree {
+    fn make_trait_object(&mut self, trait_obj_ty: Type, obj_ptr: Expr, vtable_ptr: Expr) -> Expr {
         let void_ptr_ty = Type::void().mk_pointer_type();
         let obj_ptr = obj_ptr.convert_cast(void_ptr_ty);
-        let constructor = Tree::new_record_constructor(
+        let constructor = Expr::new_record_constructor(
             trait_obj_ty,
             &[
                 trait_obj_ty.get_record_type_field_decl(0),
@@ -1230,10 +1229,10 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             ],
             &[obj_ptr, vtable_ptr],
         );
-        Tree::new_compound_literal_expr(trait_obj_ty, constructor, self.fn_decl.0)
+        Expr::new_compound_literal_expr(trait_obj_ty, constructor, self.fn_decl.0)
     }
 
-    fn convert_rvalue(&mut self, rv: &Rvalue<'tcx>) -> Tree {
+    fn convert_rvalue(&mut self, rv: &Rvalue<'tcx>) -> Expr {
         use Rvalue::*;
 
         match rv {
@@ -1270,7 +1269,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 let type_ = self.convert_type(rv.ty(self.body, self.tcx));
                 let operand1 = Self::implicit_cast(self.convert_operand(operand1), type_);
                 let operand2 = Self::implicit_cast(self.convert_operand(operand2), type_);
-                Tree::new2(code, type_, operand1, operand2)
+                Expr::new2(code, type_, operand1, operand2)
             }
 
             CheckedBinaryOp(op, operand1, operand2) => {
@@ -1279,8 +1278,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     self.convert_rvalue(&BinaryOp(*op, operand1.clone(), operand2.clone()));
                 // TODO: perform the check
                 let check_value =
-                    Tree::new_int_constant(self.convert_type(self.tcx.types.bool), true.into());
-                let constructor = Tree::new_record_constructor(
+                    Expr::new_int_constant(self.convert_type(self.tcx.types.bool), true.into());
+                let constructor = Expr::new_record_constructor(
                     type_,
                     &[
                         type_.get_record_type_field_decl(0),
@@ -1288,7 +1287,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     ],
                     &[unchecked_value, check_value],
                 );
-                Tree::new_compound_literal_expr(type_, constructor, self.fn_decl.0)
+                Expr::new_compound_literal_expr(type_, constructor, self.fn_decl.0)
             }
 
             UnaryOp(op, operand) => {
@@ -1454,14 +1453,14 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 match &**agg_kind {
                     Array(_element_type) => {
                         let array_type = self.convert_type(rv.ty(self.body, self.tcx));
-                        let constructor = Tree::new_array_constructor(
+                        let constructor = Expr::new_array_constructor(
                             array_type,
                             &operands
                                 .into_iter()
                                 .map(|operand| self.convert_operand(operand))
                                 .collect::<Vec<_>>(),
                         );
-                        Tree::new_compound_literal_expr(array_type, constructor, self.fn_decl.0)
+                        Expr::new_compound_literal_expr(array_type, constructor, self.fn_decl.0)
                     }
 
                     _ => unimplemented!(
@@ -1487,21 +1486,21 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         }
     }
 
-    fn convert_goto(&self, target: BasicBlock) -> Tree {
+    fn convert_goto(&self, target: BasicBlock) -> Expr {
         let target = self.block_labels[target.as_usize()];
-        Tree::new_goto(target)
+        Expr::new_goto(target)
     }
 
-    fn convert_panic(&self) -> Tree {
+    fn convert_panic(&self) -> Expr {
         // TODO: should be a trap
         self.convert_unreachable()
     }
 
-    fn convert_unreachable(&self) -> Tree {
-        Tree::new_call_expr(
+    fn convert_unreachable(&self) -> Expr {
+        Expr::new_call_expr(
             UNKNOWN_LOCATION,
             Type::void(),
-            Tree::from(BuiltinFunction::Unreachable).mk_pointer(),
+            Expr::from(BuiltinFunction::Unreachable).mk_pointer(),
             &[],
         )
     }
@@ -1511,20 +1510,20 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         def_id: DefId,
         substs: SubstsRef<'tcx>,
         original_args: &[Operand<'tcx>],
-        converted_args: &[Tree],
+        converted_args: &[Expr],
         call_expr_type: Type,
-    ) -> Tree {
+    ) -> Expr {
         let name = self.tcx.item_name(def_id);
 
         match &*name.as_str() {
-            "wrapping_add" => Tree::new2(
+            "wrapping_add" => Expr::new2(
                 TreeCode::PlusExpr,
                 call_expr_type,
                 converted_args[0],
                 converted_args[1],
             ),
 
-            "wrapping_sub" => Tree::new2(
+            "wrapping_sub" => Expr::new2(
                 TreeCode::MinusExpr,
                 call_expr_type,
                 converted_args[0],
@@ -1534,7 +1533,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             // Convert pointer to isize, do the math, then convert back.
             // TODO: The whole point of this intrinsic is not to do the conversion, is it really
             // necessary?
-            "arith_offset" => Tree::new2(
+            "arith_offset" => Expr::new2(
                 TreeCode::PlusExpr,
                 ISIZE_KIND.into(),
                 converted_args[0].nop_cast(ISIZE_KIND.into()),
@@ -1545,7 +1544,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             "copy_nonoverlapping" => {
                 let copied_type = substs.type_at(0);
                 let element_size = self.convert_type(copied_type).get_size_bytes();
-                let all_size = Tree::new2(
+                let all_size = Expr::new2(
                     TreeCode::MultExpr,
                     USIZE_KIND.into(),
                     // TODO: nop_expr?
@@ -1553,10 +1552,10 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     converted_args[2],
                 );
 
-                Tree::new_call_expr(
+                Expr::new_call_expr(
                     UNKNOWN_LOCATION,
                     Type::void(),
-                    Tree::from(BuiltinFunction::Memcpy).mk_pointer(),
+                    Expr::from(BuiltinFunction::Memcpy).mk_pointer(),
                     // src and dst are swapped here
                     &[converted_args[1], converted_args[0], all_size],
                 )
@@ -1566,7 +1565,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 let ptr = converted_args[0];
                 // gcc wants a usize instead of an isize
                 let offset = converted_args[1].convert_cast(USIZE_KIND.into());
-                Tree::new2(TreeCode::PointerPlusExpr, ptr.get_type(), ptr, offset)
+                Expr::new2(TreeCode::PointerPlusExpr, ptr.get_type(), ptr, offset)
             }
 
             "size_of" => {
@@ -1582,13 +1581,13 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 if ty_and_layout.abi.is_uninhabited() {
                     self.convert_panic()
                 } else {
-                    Tree::mk_void_value()
+                    Expr::void()
                 }
             }
 
             "assume" => {
                 eprintln!("Warning: Ignoring 'assume' intrinsic {:?}", original_args);
-                Tree::mk_void_value()
+                Expr::void()
             }
 
             "transmute" => converted_args[0].view_convert_cast(call_expr_type),
@@ -1602,7 +1601,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         func: &Operand<'tcx>,
         args: &[Operand<'tcx>],
         call_expr_type: Type,
-    ) -> Tree {
+    ) -> Expr {
         let mut converted_args = args
             .into_iter()
             .map(|arg| self.convert_operand(arg))
@@ -1644,7 +1643,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     // Increase index by 3 to skip drop-in-place and 2 size fields.
                     // This assumes that the size fields are the same size as function pointers,
                     // so we can treat them as elements in a function pointer array.
-                    let index = Tree::new_int_constant(USIZE_KIND, (index + 3).try_into().unwrap());
+                    let index = Expr::new_int_constant(USIZE_KIND, (index + 3).try_into().unwrap());
                     let fn_ptr_ptr = Self::pointer_plus_element_index(vtable_ptr, index);
                     fn_ptr_ptr.deref_value()
                 } else {
@@ -1690,7 +1689,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
         let func_ty_by_abi = func_ty_by_abi.mk_pointer_type();
         let func = func.nop_cast(func_ty_by_abi);
 
-        Tree::new_call_expr(UNKNOWN_LOCATION, call_expr_type, func, &converted_args)
+        Expr::new_call_expr(UNKNOWN_LOCATION, call_expr_type, func, &converted_args)
     }
 
     // TODO: The original terminator struct has cleanup and from_hir_call fields which should
@@ -1720,7 +1719,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             if returns_void {
                 self.stmt_list.push(call_expr);
             } else {
-                let init_expr = Tree::new_assignment(self.get_place(place), call_expr);
+                let init_expr = Expr::new_assignment(self.get_place(place), call_expr);
                 self.stmt_list.push(init_expr);
             }
 
@@ -1742,7 +1741,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             eprintln!("  => (No terminator)");
         }
 
-        self.stmt_list.push(Tree::new_label_expr(
+        self.stmt_list.push(Expr::new_label_expr(
             self.block_labels[block_index.as_usize()],
         ));
 
@@ -1774,7 +1773,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     let place_is_void = place.get_type().get_code() == TreeCode::VoidType;
                     let rvalue_is_void = rvalue.get_type().get_code() == TreeCode::VoidType;
                     if !place_is_void && !rvalue_is_void {
-                        self.stmt_list.push(Tree::new_assignment(
+                        self.stmt_list.push(Expr::new_assignment(
                             place,
                             Self::implicit_cast(rvalue, place.get_type()),
                         ));
@@ -1831,27 +1830,27 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 if values.len() == 1 {
                     let value = values[0];
 
-                    let cond = Tree::new2(
+                    let cond = Expr::new2(
                         TreeCode::EqExpr,
                         Type::bool(),
                         self.convert_operand(discr),
-                        Tree::new_int_constant(switch_ty_tree, value.try_into().unwrap()),
+                        Expr::new_int_constant(switch_ty_tree, value.try_into().unwrap()),
                     );
 
                     let if_eq_expr = self.convert_goto(targets[0]);
                     let else_expr = self.convert_goto(targets[1]);
                     self.stmt_list
-                        .push(Tree::new_cond_expr(cond, if_eq_expr, else_expr));
+                        .push(Expr::new_cond_expr(cond, if_eq_expr, else_expr));
                 } else {
                     let mut cases_list = StatementList::new();
 
                     for (value, target) in values.into_iter().zip(targets) {
-                        let case_expr = Tree::new_case_label_expr(
-                            Some(Tree::new_int_constant(
+                        let case_expr = Expr::new_case_label_expr(
+                            Some(Expr::new_int_constant(
                                 switch_ty_tree,
                                 (*value).try_into().unwrap(),
                             )),
-                            Tree::new_label_decl(UNKNOWN_LOCATION, self.fn_decl.0),
+                            Expr::new_label_decl(UNKNOWN_LOCATION, self.fn_decl.0),
                         );
 
                         cases_list.push(case_expr);
@@ -1859,26 +1858,29 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     }
 
                     // default case
-                    cases_list.push(Tree::new_case_label_expr(
+                    cases_list.push(Expr::new_case_label_expr(
                         None,
-                        Tree::new_label_decl(UNKNOWN_LOCATION, self.fn_decl.0),
+                        Expr::new_label_decl(UNKNOWN_LOCATION, self.fn_decl.0),
                     ));
                     cases_list.push(self.convert_goto(*targets.last().unwrap()));
 
                     let discr = self.convert_operand(discr);
                     self.stmt_list
-                        .push(Tree::new_switch_expr(switch_ty_tree, discr, cases_list.0));
+                        .push(Expr::new_switch_expr(switch_ty_tree, discr, cases_list.0));
                 }
             }
 
             Return => {
                 let return_value = if self.return_type_is_void {
-                    NULL_TREE
+                    None
                 } else {
-                    Tree::new_assignment(self.res_decl, self.tmp_var_decl_for_res)
+                    Some(Expr::new_assignment(
+                        self.res_decl,
+                        self.tmp_var_decl_for_res,
+                    ))
                 };
 
-                self.stmt_list.push(Tree::new_return_expr(return_value));
+                self.stmt_list.push(Expr::new_return_expr(return_value));
             }
 
             Unreachable => {
@@ -1916,8 +1918,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
     }
 
     fn finalize(mut self) {
-        let vars_chain_head = self.vars.head().unwrap_or(NULL_TREE);
-        let bind_expr = Tree::new_bind_expr(vars_chain_head, self.stmt_list.0, self.main_gcc_block);
+        let bind_expr =
+            Expr::new_bind_expr(self.vars.head(), self.stmt_list.0, self.main_gcc_block);
         self.fn_decl.set_saved_tree(bind_expr);
 
         self.fn_decl.gimplify();
