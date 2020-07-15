@@ -401,15 +401,16 @@ impl<'tcx> TypeCache<'tcx> {
 
         let ty_and_layout = self.get_type_layout(ty);
 
-        // This includes the unit type. For function return types, convert_fn_return_type()
-        // converts it to void, but in other contexts, we treat it like other ZSTs, so that it can
-        // be instantiated.
-        if ty_and_layout.is_zst() {
-            return Self::make_zst();
-        }
+        // ZSTs include the unit type. For function return types, convert_fn_return_type() converts
+        // it to void, but in other contexts, we treat it like other ZSTs, so that it can be
+        // instantiated.
+        let mut tree = if ty_and_layout.is_zst() {
+            Self::make_zst()
+        } else {
+            // convert_layout can recursively call convert_type
+            self.convert_layout(ty_and_layout)
+        };
 
-        // convert_layout can recursively call convert_type
-        let mut tree = self.convert_layout(ty_and_layout);
         tree.set_name(Tree::new_identifier(format!("{}", ty)));
         *self.tys.entry(ty).or_insert(tree)
     }
