@@ -1241,8 +1241,11 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 };
 
                 let type_ = self.convert_type(rv.ty(self.body, self.tcx));
-                let operand1 = Self::implicit_cast(self.convert_operand(operand1), type_);
-                let operand2 = Self::implicit_cast(self.convert_operand(operand2), type_);
+
+                let operand1 = self.convert_operand(operand1);
+                let operand2 = self.convert_operand(operand2);
+                assert!(operand1.get_type().is_compatible(operand2.get_type()));
+
                 operand1.typed_math(code, type_, operand2)
             }
 
