@@ -605,6 +605,8 @@ impl<'tcx> ConversionCtx<'tcx> {
             conv_array_ty,
         );
         vtable_var.set_static(true);
+        vtable_var.set_constant(true);
+        vtable_var.set_readonly(true);
         vtable_var.set_decl_context(self.translation_unit_decl);
         vtable_var.set_decl_initial(constructor);
         vtable_var.finalize_decl();
