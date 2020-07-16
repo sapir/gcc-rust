@@ -1515,12 +1515,19 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             ),
 
             // Convert pointer to isize, do the math, then convert back.
-            // TODO: The whole point of this intrinsic is not to do the conversion, is it really
-            // necessary?
-            "arith_offset" => converted_args[0]
-                .nop_cast(ISIZE_KIND.into())
-                .plus(converted_args[1])
-                .nop_cast(call_expr_type),
+            // TODO: The docs say that the whole point of these intrinsics is not to do the
+            // conversion, is it really necessary?
+            "offset" | "arith_offset" => {
+                let ptr = converted_args[0];
+                let pointee_type = ptr.get_type().get_type();
+                let pointee_size = pointee_type.get_size_bytes().nop_cast(ISIZE_KIND.into());
+
+                let offset = converted_args[1].mult(pointee_size);
+
+                ptr.nop_cast(ISIZE_KIND.into())
+                    .plus(offset)
+                    .nop_cast(call_expr_type)
+            }
 
             "copy_nonoverlapping" => {
                 let copied_type = substs.type_at(0);
@@ -1539,13 +1546,6 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     // src and dst are swapped here
                     &[converted_args[1], converted_args[0], all_size],
                 )
-            }
-
-            "offset" => {
-                let ptr = converted_args[0];
-                // gcc wants a usize instead of an isize
-                let offset = converted_args[1].convert_cast(USIZE_KIND.into());
-                ptr.pointer_plus(offset)
             }
 
             "size_of" => {
