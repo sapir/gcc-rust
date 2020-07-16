@@ -430,8 +430,15 @@ impl Expr {
     }
 
     pub fn mk_pointer(mut self) -> Self {
-        if self.get_code() == TreeCode::VarDecl {
-            self.set_addressable(true);
+        match self.get_code() {
+            TreeCode::VarDecl
+            | TreeCode::ParmDecl
+            | TreeCode::ResultDecl
+            | TreeCode::Constructor => {
+                self.set_addressable(true);
+            }
+
+            _ => {}
         }
 
         let mut t = Self(Tree::new1(
