@@ -26,7 +26,11 @@ use rustc_target::{
     abi::{Size, TagEncoding},
     spec::abi::Abi,
 };
-use std::{collections::HashMap, convert::TryInto, ffi::CString};
+use std::{
+    collections::HashMap,
+    convert::{TryFrom, TryInto},
+    ffi::CString,
+};
 
 // Copied from https://github.com/bjorn3/rustc_codegen_cranelift/blob/8dfb1daea7a79ad983058098a091a2f4a7525cc9/src/abi/mod.rs#L16
 // Copied from https://github.com/rust-lang/rust/blob/b2c1a606feb1fbdb0ac0acba76f881ef172ed474/src/librustc_middle/ty/layout.rs#L2287
@@ -861,12 +865,22 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                         scalar.assert_bits(size).try_into().unwrap(),
                     ),
 
-                    _ => unimplemented!(
-                        "const, ty.kind={:?}, ty={:?}, val={:?}",
-                        const_.ty.kind,
-                        const_.ty,
-                        const_.val
-                    ),
+                    _ => {
+                        let value = i64::try_from(scalar.assert_bits(size)).unwrap();
+
+                        let int_type = match size.bits() {
+                            8 => self.tcx.types.i8,
+                            16 => self.tcx.types.i16,
+                            32 => self.tcx.types.i32,
+                            64 => self.tcx.types.i64,
+                            128 => self.tcx.types.i128,
+                            _ => unreachable!("unsupported int size {:?}", size),
+                        };
+                        let int_type = self.convert_type(int_type);
+
+                        Expr::new_int_constant(int_type, value)
+                            .view_convert_cast(self.convert_type(const_.ty))
+                    }
                 }
             }
 
