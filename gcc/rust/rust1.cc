@@ -171,6 +171,10 @@ extern "C" {
     TREE_CONSTANT(t) = value;
   }
 
+  void set_tree_readonly(tree t, bool value) {
+    TREE_READONLY(t) = value;
+  }
+
   void set_tree_used(tree t, bool value) {
     TREE_USED(t) = value;
   }
