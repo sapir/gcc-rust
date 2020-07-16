@@ -1513,6 +1513,12 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 converted_args[0].typed_math(TreeCode::MinusExpr, call_expr_type, converted_args[1])
             }
 
+            "exact_div" => converted_args[0].typed_math(
+                TreeCode::ExactDivExpr,
+                call_expr_type,
+                converted_args[1],
+            ),
+
             // Convert pointer to isize, do the math, then convert back.
             // TODO: The whole point of this intrinsic is not to do the conversion, is it really
             // necessary?
