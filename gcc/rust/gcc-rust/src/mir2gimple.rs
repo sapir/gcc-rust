@@ -5,7 +5,7 @@ use rustc_interface::Queries;
 use rustc_middle::{
     bug,
     mir::{
-        interpret::{ConstValue, Scalar},
+        interpret::{AllocId, Allocation, ConstValue, GlobalAlloc, Pointer, Scalar},
         mono::MonoItem,
         tcx::PlaceTy,
         AggregateKind, BasicBlock, BasicBlockData, BinOp, Body, CastKind, Field, HasLocalDecls,
@@ -465,6 +465,7 @@ struct ConversionCtx<'tcx> {
     type_cache: TypeCache<'tcx>,
     vtables: HashMap<(Ty<'tcx>, Option<PolyExistentialTraitRef<'tcx>>), Expr>,
     translation_unit_decl: Expr,
+    allocations: HashMap<AllocId, Expr>,
 }
 
 impl<'tcx> ConversionCtx<'tcx> {
@@ -474,6 +475,7 @@ impl<'tcx> ConversionCtx<'tcx> {
             type_cache: TypeCache::new(tcx),
             vtables: HashMap::new(),
             translation_unit_decl: Expr::new_translation_unit_decl(NULL_TREE),
+            allocations: HashMap::new(),
         }
     }
 
@@ -611,6 +613,126 @@ impl<'tcx> ConversionCtx<'tcx> {
         let vtable_ptr = vtable_var.mk_pointer();
         self.vtables.insert(key, vtable_ptr);
         vtable_ptr
+    }
+
+    /// Returns the actual value, and doesn't cache results. See `convert_allocation`.
+    fn do_convert_allocation(&mut self, alloc_id: AllocId, alloc: &'tcx Allocation) -> Expr {
+        let ptr = Pointer::new(alloc_id, Size::ZERO);
+        let layout_cx = self.type_cache.make_layout_cx();
+        let data = alloc
+            .get_bytes_with_undef_and_ptr(&layout_cx, ptr, alloc.size)
+            .unwrap();
+        if alloc.relocations().is_empty() {
+            // Return data buffer directly, no need to handle relocations
+            return Expr::new_string_array(data);
+        }
+
+        // Got relocations, so convert the Allocation to a struct with alternating data buffers and
+        // pointers.
+        let mut field_offsets = vec![];
+        let mut field_values = vec![];
+        let mut last_offset = 0;
+        for (offset, ((), alloc_id)) in alloc.relocations().iter() {
+            let offset = usize::try_from(offset.bytes()).unwrap();
+
+            if last_offset < offset {
+                field_offsets.push(last_offset);
+                field_values.push(Expr::new_string_array(&data[last_offset..offset]));
+            }
+
+            field_offsets.push(offset);
+            field_values.push(self.convert_alloc_id(*alloc_id).mk_pointer());
+            // TODO: pointer size
+            last_offset = offset + 8;
+        }
+
+        if last_offset < data.len() {
+            field_offsets.push(last_offset);
+            field_values.push(Expr::new_string_array(&data[last_offset..]));
+        }
+
+        let field_types = field_values
+            .iter()
+            .map(|value| value.get_type())
+            .collect::<Vec<_>>();
+        let mut field_decls = DeclList::new(TreeCode::FieldDecl, &field_types);
+        for (offset, field_decl) in field_offsets.into_iter().zip(field_decls.iter_mut()) {
+            field_decl.place_field_manually(offset.try_into().unwrap());
+        }
+
+        let record_type = {
+            let mut ty = Type::new_record_type(TreeCode::RecordType);
+            ty.finish_record_type(
+                field_decls,
+                alloc.size.bytes(),
+                8, // TODO: pointer alignment
+            );
+            ty
+        };
+
+        Expr::new_record_constructor(
+            record_type,
+            &(0..field_values.len())
+                .map(|i| record_type.get_record_type_field_decl(i))
+                .collect::<Vec<_>>(),
+            &field_values,
+        )
+    }
+
+    /// Returns a VarDecl
+    fn convert_allocation(&mut self, allocation: &'tcx Allocation) -> Expr {
+        let alloc_id = self.tcx.create_memory_alloc(allocation);
+        if let Some(var_decl) = self.allocations.get(&alloc_id) {
+            return *var_decl;
+        }
+
+        let value = self.do_convert_allocation(alloc_id, allocation);
+
+        let name = format!("__alloc{}", alloc_id.0);
+        let mut decl = Expr::new_var_decl(
+            UNKNOWN_LOCATION,
+            Tree::new_identifier(name),
+            value.get_type(),
+        );
+        decl.set_static(true);
+        // TODO: figure out when the decl can/should be marked as readonly or constant
+        decl.set_decl_context(self.translation_unit_decl);
+        decl.set_decl_initial(value);
+        decl.finalize_decl();
+
+        self.allocations.insert(alloc_id, decl);
+        decl
+    }
+
+    fn convert_alloc_id(&mut self, alloc: AllocId) -> Expr {
+        let alloc = self.tcx.global_alloc(alloc);
+
+        match alloc {
+            GlobalAlloc::Memory(mem_alloc) => self.convert_allocation(mem_alloc),
+
+            GlobalAlloc::Static(def_id) => self.convert_static(def_id),
+
+            _ => todo!("{:?}", alloc),
+        }
+    }
+
+    // See codegen_clif constant.rs:define_all_allocs
+    fn static_to_alloc(&self, def_id: DefId) -> &'tcx Allocation {
+        let const_ = self.tcx.const_eval_poly(def_id).unwrap();
+
+        match const_ {
+            ConstValue::ByRef { alloc, offset } => {
+                assert_eq!(offset, Size::ZERO);
+                alloc
+            }
+
+            _ => unreachable!("static const eval returned {:?}", const_),
+        }
+    }
+
+    // See codegen_clif constant.rs:define_all_allocs
+    fn convert_static(&mut self, def_id: DefId) -> Expr {
+        self.convert_allocation(self.static_to_alloc(def_id))
     }
 }
 
@@ -881,6 +1003,32 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                             .view_convert_cast(self.convert_type(const_.ty))
                     }
                 }
+            }
+
+            ConstKind::Value(ConstValue::Scalar(Scalar::Ptr(ptr))) => self
+                .conv_ctx
+                .convert_alloc_id(ptr.alloc_id)
+                .mk_pointer()
+                .pointer_plus(Expr::new_usize(ptr.offset.bytes()))
+                .nop_cast(self.convert_type(const_.ty)),
+
+            ConstKind::Value(ConstValue::ByRef { alloc, offset }) => self
+                .conv_ctx
+                .convert_allocation(alloc)
+                .mk_pointer()
+                .pointer_plus(Expr::new_usize(offset.bytes()))
+                .nop_cast(self.convert_type(const_.ty).mk_pointer_type())
+                .deref_value(),
+
+            ConstKind::Value(ConstValue::Slice { data, start, end }) => {
+                let slice_type = self.convert_type(const_.ty);
+                let ptr = self
+                    .conv_ctx
+                    .convert_allocation(data)
+                    .mk_pointer()
+                    .pointer_plus(Expr::new_usize(start.try_into().unwrap()));
+                let length = end - start;
+                self.make_slice(slice_type, ptr, length.try_into().unwrap())
             }
 
             _ => unimplemented!("Const {:?} {:?}", const_.ty, const_.val),
@@ -1747,9 +1895,9 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     // Avoid reads from void and writes to void. But still evaluate both the place
                     // and the rvalue, in case either of them somehow has side effects (is that
                     // possible?). The assignment would actually work, too, except that ADT members
-                    // of type unit are converted to zero-length arrays instead of void, so
-                    // attempts to set them to a void value (or set a void place to their value)
-                    // trigger a type mismatch error.
+                    // of type unit are converted to empty structs instead of void, so attempts to
+                    // set them to a void value (or set a void place to their value) trigger a type
+                    // mismatch error.
                     let place_is_void = place.get_type().get_code() == TreeCode::VoidType;
                     let rvalue_is_void = rvalue.get_type().get_code() == TreeCode::VoidType;
                     if !place_is_void && !rvalue_is_void {
@@ -1940,6 +2088,10 @@ pub fn mir2gimple<'tcx>(queries: &'tcx Queries<'tcx>) {
                     func_mir_to_gcc(&mut conv_ctx, name, instance, &mir);
 
                     println!();
+                }
+
+                MonoItem::Static(def_id) => {
+                    conv_ctx.convert_static(def_id);
                 }
 
                 _ => unimplemented!("monoitem {:?}", item),

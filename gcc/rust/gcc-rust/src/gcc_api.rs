@@ -291,6 +291,10 @@ impl Expr {
         Self::new_int_constant(SizeTypeKind::UnsignedBytes, value.try_into().unwrap())
     }
 
+    pub fn new_string_array(buf: &[u8]) -> Expr {
+        unsafe { build_string_array(buf.len(), buf.as_ptr() as *const c_char) }
+    }
+
     pub fn new_return_expr(value: Option<Expr>) -> Self {
         let value = opt_tree_wrapper_to_tree(value);
 
@@ -654,6 +658,7 @@ extern "C" {
     fn get_type_size_bytes(tree: Type) -> Expr;
     fn set_type_name(tt: Type, identifier: Tree);
     fn build_label_decl(loc: Location, context: Tree) -> Tree;
+    fn build_string_array(len: usize, str: *const c_char) -> Expr;
     fn set_tree_static(tree: Tree, value: bool);
     fn set_tree_public(tree: Tree, value: bool);
     fn set_tree_side_effects(tree: Tree, value: bool);

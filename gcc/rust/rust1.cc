@@ -155,6 +155,15 @@ extern "C" {
     return decl;
   }
 
+  // Based on build_string_literal, but keeps the array value, and doesn't mark
+  // TREE_CONSTANT, TREE_READONLY or TREE_STATIC.
+  tree build_string_array(size_t len, const char *str) {
+    tree t = build_string(len, str);
+    tree type = build_array_type_nelts(unsigned_char_type_node, len);
+    TREE_TYPE(t) = type;
+    return t;
+  }
+
   void set_tree_static(tree t, bool value) {
     TREE_STATIC(t) = value;
   }
