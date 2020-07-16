@@ -552,11 +552,8 @@ impl<'tcx> ConversionCtx<'tcx> {
         let ty_and_layout = self.layout_of(ty);
         let mut components: Vec<_> = vec![
             self.convert_instance_to_fn_ptr(Instance::resolve_drop_in_place(self.tcx, ty)),
-            Expr::new_int_constant(USIZE_KIND, ty_and_layout.size.bytes().try_into().unwrap()),
-            Expr::new_int_constant(
-                USIZE_KIND,
-                ty_and_layout.align.abi.bytes().try_into().unwrap(),
-            ),
+            Expr::new_usize(ty_and_layout.size.bytes()),
+            Expr::new_usize(ty_and_layout.align.abi.bytes()),
         ];
 
         let nullptr = Expr::null_ptr();
@@ -909,8 +906,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
             place_ptr
         } else {
             // We'll be converting as *(field_type*)((void*)&struct + field_offset)
-            let field_offset =
-                Expr::new_int_constant(USIZE_KIND, field_offset.bytes().try_into().unwrap());
+            let field_offset = Expr::new_usize(field_offset.bytes());
 
             place_ptr.pointer_plus(field_offset)
         };
@@ -1198,10 +1194,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 converted_slice_type.get_record_type_field_decl(0),
                 converted_slice_type.get_record_type_field_decl(1),
             ],
-            &[
-                ptr_expr,
-                Expr::new_int_constant(USIZE_KIND, length.try_into().unwrap()),
-            ],
+            &[ptr_expr, Expr::new_usize(length.try_into().unwrap())],
         );
         Expr::new_compound_literal_expr(converted_slice_type, constructor, self.fn_decl.0)
     }
@@ -1630,7 +1623,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     // Increase index by 3 to skip drop-in-place and 2 size fields.
                     // This assumes that the size fields are the same size as function pointers,
                     // so we can treat them as elements in a function pointer array.
-                    let index = Expr::new_int_constant(USIZE_KIND, (index + 3).try_into().unwrap());
+                    let index = Expr::new_usize((index + 3).try_into().unwrap());
                     let fn_ptr_ptr = Self::pointer_plus_element_index(vtable_ptr, index);
                     fn_ptr_ptr.deref_value()
                 } else {

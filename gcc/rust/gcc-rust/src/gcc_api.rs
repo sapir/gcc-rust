@@ -286,6 +286,11 @@ impl Expr {
         unsafe { Self(Tree(build_int_constant(int_type.into(), value))) }
     }
 
+    /// value is `u64`, not usize, because our usize may be u32 while the target's usize may be u64
+    pub fn new_usize(value: u64) -> Self {
+        Self::new_int_constant(SizeTypeKind::UnsignedBytes, value.try_into().unwrap())
+    }
+
     pub fn new_return_expr(value: Option<Expr>) -> Self {
         let value = opt_tree_wrapper_to_tree(value);
 
