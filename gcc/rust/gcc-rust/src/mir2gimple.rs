@@ -737,7 +737,8 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
 
         let tmp_var_decl_for_res = vars[tmp_var_decl_for_res];
 
-        let main_gcc_block = Expr::new_block(vars.head(), None, fn_decl.0, None);
+        let mut main_gcc_block = Expr::new_block(vars.head(), None, fn_decl.0, None);
+        main_gcc_block.set_used(true);
         fn_decl.set_initial(main_gcc_block);
 
         let parm_decls_for_caller = DeclList::new(TreeCode::ParmDecl, &arg_types_for_caller);
