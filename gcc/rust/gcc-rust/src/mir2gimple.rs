@@ -1551,7 +1551,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                         ) = (&old_ty.kind, &new_ty.kind)
                         {
                             if array_element_type == slice_element_type {
-                                let ptr = self.convert_operand(operand).mk_pointer();
+                                let ptr = self.convert_operand(operand);
                                 let slice_type = self.convert_type(new_ty);
                                 return self.make_slice(
                                     slice_type,
