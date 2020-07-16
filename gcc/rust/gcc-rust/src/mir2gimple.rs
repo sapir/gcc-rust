@@ -1122,7 +1122,17 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                     let index = self.get_local(index);
 
                     if Self::is_place_ty_slice(component_ty) {
+                        // Pointer type conversion is messed up. Fix it before dereferencing. Code
+                        // copied from Deref case above.
+                        let dereffed_layout = self.conv_ctx.layout_of_place_ty(next_component_ty);
+                        let pointer_ty = self
+                            .conv_ctx
+                            .type_cache
+                            .convert_layout(dereffed_layout)
+                            .mk_pointer_type();
+
                         let ptr = component.get_record_field(0);
+                        let ptr = ptr.nop_cast(pointer_ty);
                         let ptr = Self::pointer_plus_element_index(ptr, index);
                         component = ptr.deref_value();
                     } else {
