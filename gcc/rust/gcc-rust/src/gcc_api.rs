@@ -460,11 +460,15 @@ impl Expr {
         }
     }
 
-    pub fn new_array_index_ref(element_type: Type, array_expr: Expr, index_expr: Expr) -> Self {
+    pub fn index_array(self, index_expr: Expr) -> Self {
+        let array_type = self.get_type();
+        assert_eq!(array_type.get_code(), TreeCode::ArrayType);
+        let element_type = array_type.get_type();
+
         Self(Tree::new4(
             TreeCode::ArrayRef,
             element_type,
-            *array_expr,
+            *self,
             *index_expr,
             NULL_TREE,
             NULL_TREE,

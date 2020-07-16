@@ -980,12 +980,7 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                         let ptr = Self::pointer_plus_element_index(ptr, index);
                         component = ptr.deref_value();
                     } else {
-                        // an ArrayType's type field contains its element type
-                        let array_type = component.get_type();
-                        assert_eq!(array_type.get_code(), TreeCode::ArrayType);
-                        let element_type = array_type.get_type();
-
-                        component = Expr::new_array_index_ref(element_type, component, index);
+                        component = component.index_array(index);
                     }
                 }
 
