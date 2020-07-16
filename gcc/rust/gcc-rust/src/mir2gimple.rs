@@ -733,7 +733,9 @@ impl<'a, 'tcx, 'body> FunctionConversion<'a, 'tcx, 'body> {
                 None
             };
 
-            DeclList::new(TreeCode::VarDecl, &var_types)
+            let mut vars = DeclList::new(TreeCode::VarDecl, &var_types);
+            vars.set_context(*fn_decl.0);
+            vars
         };
 
         let tmp_var_decl_for_res = vars[tmp_var_decl_for_res];

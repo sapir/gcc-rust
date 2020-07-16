@@ -310,21 +310,13 @@ impl Expr {
     pub fn new_bind_expr(vars: Option<Expr>, body: Expr, block: Expr) -> Self {
         let vars = opt_tree_wrapper_to_tree(vars);
 
-        let bind_expr = Self(Tree::new3(
+        Self(Tree::new3(
             TreeCode::BindExpr,
             Type::void(),
             vars,
             *body,
             *block,
-        ));
-
-        if vars.0 != NULL_TREE.0 {
-            unsafe {
-                set_decl_chain_context(vars, *block);
-            }
-        }
-
-        bind_expr
+        ))
     }
 
     pub fn new_result_decl(loc: Location, type_: Type) -> Self {
