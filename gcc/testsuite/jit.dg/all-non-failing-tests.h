@@ -195,6 +195,13 @@
 #undef create_code
 #undef verify_code
 
+/* test-builtin-types.c */
+#define create_code create_code_builtin_types
+#define verify_code verify_code_builtin_types
+#include "test-builtin-types.c"
+#undef create_code
+#undef verify_code
+
 /* test-hello-world.c */
 #define create_code create_code_hello_world
 #define verify_code verify_code_hello_world

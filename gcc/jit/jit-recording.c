@@ -2671,8 +2671,18 @@ recording::memento_of_get_pointer::accepts_writes_from (type *rtype)
     return false;
 
   /* It's OK to assign to a (const T *) from a (T *).  */
-  return m_other_type->unqualified ()
-    ->accepts_writes_from (rtype_points_to);
+  if (m_other_type->unqualified ()
+    ->accepts_writes_from (rtype_points_to)) {
+      return true;
+  }
+
+  /* It's OK to assign to a (volatile const T *) from a (volatile const T *). */
+  if (m_other_type->unqualified ()->unqualified ()
+    ->accepts_writes_from (rtype_points_to->unqualified ())) {
+      return true;
+  }
+
+  return false;
 }
 
 /* Implementation of pure virtual hook recording::memento::replay_into
