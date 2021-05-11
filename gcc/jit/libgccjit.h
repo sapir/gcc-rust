@@ -733,6 +733,16 @@ enum gcc_jit_function_kind
   GCC_JIT_FUNCTION_ALWAYS_INLINE
 };
 
+/* Thread local storage model.  */
+enum gcc_jit_tls_model
+{
+  GCC_JIT_TLS_MODEL_GLOBAL_DYNAMIC,
+  GCC_JIT_TLS_MODEL_LOCAL_DYNAMIC,
+  GCC_JIT_TLS_MODEL_INITIAL_EXEC,
+  GCC_JIT_TLS_MODEL_LOCAL_EXEC,
+  GCC_JIT_TLS_MODEL_DEFAULT,
+};
+
 /* Create a function.  */
 extern gcc_jit_function *
 gcc_jit_context_new_function (gcc_jit_context *ctxt,
@@ -1108,6 +1118,17 @@ gcc_jit_lvalue_get_address (gcc_jit_lvalue *lvalue,
 extern void
 gcc_jit_lvalue_set_link_section (gcc_jit_lvalue *lvalue,
 			    const char *name);
+
+#define LIBGCCJIT_HAVE_gcc_jit_lvalue_set_tls_model
+
+/* Set the thread-local storage model of a global variable
+
+   This API entrypoint was added in LIBGCCJIT_ABI_17; you can test for its
+   presence using
+     #ifdef LIBGCCJIT_HAVE_gcc_jit_lvalue_set_tls_model  */
+extern void
+gcc_jit_lvalue_set_tls_model (gcc_jit_lvalue *lvalue,
+			    enum gcc_jit_tls_model model);
 
 extern gcc_jit_lvalue *
 gcc_jit_function_new_local (gcc_jit_function *func,

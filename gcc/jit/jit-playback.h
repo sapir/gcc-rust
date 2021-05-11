@@ -685,6 +685,12 @@ public:
     set_decl_section_name (m_inner, name);
   }
 
+  void
+  set_tls_model (enum tls_model tls_model)
+  {
+    set_decl_tls_model (m_inner, tls_model);
+  }
+
 private:
   bool mark_addressable (location *loc);
 };

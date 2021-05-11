@@ -3791,6 +3791,12 @@ void recording::lvalue::set_link_section (const char *name)
   m_link_section = new_string (name);
 }
 
+void
+recording::lvalue::set_tls_model (enum gcc_jit_tls_model model)
+{
+    m_tls_model = model;
+}
+
 /* The implementation of class gcc::jit::recording::param.  */
 
 /* Implementation of pure virtual hook recording::memento::replay_into
@@ -4617,6 +4623,15 @@ recording::block::dump_edges_to_dot (pretty_printer *pp)
 #  pragma GCC diagnostic pop
 #endif
 
+namespace recording {
+static const enum tls_model tls_models[] = {
+  TLS_MODEL_GLOBAL_DYNAMIC, /* GCC_JIT_TLS_MODEL_GLOBAL_DYNAMIC */
+  TLS_MODEL_LOCAL_DYNAMIC, /* GCC_JIT_TLS_MODEL_LOCAL_DYNAMIC */
+  TLS_MODEL_INITIAL_EXEC, /* GCC_JIT_TLS_MODEL_INITIAL_EXEC */
+  TLS_MODEL_LOCAL_EXEC, /* GCC_JIT_TLS_MODEL_LOCAL_EXEC */
+};
+} /* namespace recording */
+
 /* The implementation of class gcc::jit::recording::global.  */
 
 /* Implementation of pure virtual hook recording::memento::replay_into
@@ -4655,6 +4670,11 @@ recording::global::replay_into (replayer *r)
   if (m_link_section != NULL)
   {
     global->set_link_section (m_link_section->c_str ());
+  }
+
+  if (m_tls_model != GCC_JIT_TLS_MODEL_DEFAULT)
+  {
+      global->set_tls_model (recording::tls_models[m_tls_model]);
   }
   set_playback_obj (global);
 }
@@ -4754,6 +4774,14 @@ recording::global::write_initializer_reproducer (const char *id, reproducer &r)
 
 /* Implementation of recording::memento::write_reproducer for globals. */
 
+static const char * const tls_model_enum_strings[] = {
+  "GCC_JIT_TLS_MODEL_GLOBAL_DYNAMIC",
+  "GCC_JIT_TLS_MODEL_LOCAL_DYNAMIC",
+  "GCC_JIT_TLS_MODEL_INITIAL_EXEC",
+  "GCC_JIT_TLS_MODEL_LOCAL_EXEC",
+  "GCC_JIT_TLS_MODEL_DEFAULT",
+};
+
 void
 recording::global::write_reproducer (reproducer &r)
 {
@@ -4785,6 +4813,14 @@ recording::global::write_reproducer (reproducer &r)
          "                                  \"%s\"); /* */\n",
      id,
      m_link_section->c_str ());
+  }
+
+  if (m_tls_model)
+  {
+	r.write ("  gcc_jit_lvalue_set_tls_model (%s, /* gcc_jit_lvalue *lvalue */\n"
+	     "                                %s); /* enum gcc_jit_tls_model model */\n",
+    id,
+    tls_model_enum_strings[m_tls_model]);
   }
 
   if (m_initializer)

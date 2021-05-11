@@ -551,6 +551,34 @@ where the rvalue is computed by reading from the storage area.
 
    in C.
 
+.. function:: void\
+              gcc_jit_lvalue_set_tls_model (gcc_jit_lvalue *lvalue,\
+                                            enum gcc_jit_tls_model model)
+
+   Make a variable a thread-local variable.
+
+   The "model" parameter determines the thread-local storage model of the "lvalue":
+
+   .. type:: enum gcc_jit_tls_model
+
+   .. c:macro:: GCC_JIT_TLS_MODEL_GLOBAL_DYNAMIC
+
+   .. c:macro:: GCC_JIT_TLS_MODEL_LOCAL_DYNAMIC
+
+   .. c:macro:: GCC_JIT_TLS_MODEL_INITIAL_EXEC
+
+   .. c:macro:: GCC_JIT_TLS_MODEL_LOCAL_EXEC
+
+   .. c:macro:: GCC_JIT_TLS_MODEL_DEFAULT
+
+   This is analogous to:
+
+   .. code-block:: c
+
+     _Thread_local int foo;
+
+   in C.
+
 Global variables
 ****************
 
