@@ -539,6 +539,18 @@ where the rvalue is computed by reading from the storage area.
 
    in C.
 
+.. function:: void
+              gcc_jit_lvalue_set_link_section (gcc_jit_lvalue *lvalue,
+                                               const char *name)
+
+   Set the link section of a variable; analogous to:
+
+   .. code-block:: c
+
+     int variable __attribute__((section(".section")));
+
+   in C.
+
 Global variables
 ****************
 

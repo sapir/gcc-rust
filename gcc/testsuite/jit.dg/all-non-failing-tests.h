@@ -181,6 +181,13 @@
 #undef create_code
 #undef verify_code
 
+/* test-link-section.c */
+#define create_code create_code_link_section
+#define verify_code verify_code_link_section
+#include "test-link-section.c"
+#undef create_code
+#undef verify_code
+
 /* test-hello-world.c */
 #define create_code create_code_hello_world
 #define verify_code verify_code_hello_world

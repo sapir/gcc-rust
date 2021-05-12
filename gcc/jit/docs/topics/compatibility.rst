@@ -244,6 +244,15 @@ embedding assembler instructions:
   * :func:`gcc_jit_extended_asm_add_clobber`
   * :func:`gcc_jit_context_add_top_level_asm`
 
+.. _LIBGCCJIT_ABI_18:
+
+``LIBGCCJIT_ABI_18``
+-----------------------
+``LIBGCCJIT_ABI_18`` covers the addition of an API entrypoint to set the link
+section of a variable:
+
+  * :func:`gcc_jit_lvalue_set_link_section`
+
 .. _LIBGCCJIT_ABI_19:
 
 ``LIBGCCJIT_ABI_19``

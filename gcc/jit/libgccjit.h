@@ -1085,6 +1085,19 @@ extern gcc_jit_rvalue *
 gcc_jit_lvalue_get_address (gcc_jit_lvalue *lvalue,
 			    gcc_jit_location *loc);
 
+#define LIBGCCJIT_HAVE_gcc_jit_lvalue_set_link_section
+
+/* Set the link section of a global variable; analogous to:
+     __attribute__((section("section_name")))
+   in C.
+
+   This API entrypoint was added in LIBGCCJIT_ABI_18; you can test for its
+   presence using
+     #ifdef LIBGCCJIT_HAVE_gcc_jit_lvalue_set_tls_model  */
+extern void
+gcc_jit_lvalue_set_link_section (gcc_jit_lvalue *lvalue,
+			    const char *name);
+
 extern gcc_jit_lvalue *
 gcc_jit_function_new_local (gcc_jit_function *func,
 			    gcc_jit_location *loc,

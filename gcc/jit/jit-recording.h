@@ -1105,7 +1105,8 @@ public:
   lvalue (context *ctxt,
 	  location *loc,
 	  type *type_)
-    : rvalue (ctxt, loc, type_)
+    : rvalue (ctxt, loc, type_),
+      m_link_section (NULL)
     {}
 
   playback::lvalue *
@@ -1127,6 +1128,10 @@ public:
   const char *access_as_rvalue (reproducer &r) OVERRIDE;
   virtual const char *access_as_lvalue (reproducer &r);
   virtual bool is_global () const { return false; }
+  void set_link_section (const char *name);
+
+protected:
+  string *m_link_section;
 };
 
 class param : public lvalue

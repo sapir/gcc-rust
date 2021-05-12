@@ -657,6 +657,8 @@ public:
 
 private:
   context *m_ctxt;
+
+protected:
   tree m_inner;
 };
 
@@ -676,6 +678,12 @@ public:
 
   rvalue *
   get_address (location *loc);
+
+  void
+  set_link_section (const char* name)
+  {
+    set_decl_section_name (m_inner, name);
+  }
 
 private:
   bool mark_addressable (location *loc);
