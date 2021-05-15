@@ -664,6 +664,24 @@ new_global_initialized (location *loc,
   return global_finalize_lvalue (inner);
 }
 
+playback::lvalue *
+playback::context::
+new_global_with_value (location *loc,
+		       enum gcc_jit_global_kind kind,
+		       type *type,
+		       playback::rvalue *value,
+		       const char *name)
+{
+  tree inner = global_new_decl (loc, kind, type, name);
+
+  tree inner_type = type->as_tree ();
+  tree initial = value->as_tree ();
+  gcc_assert (TREE_CONSTANT (initial));
+  DECL_INITIAL (inner) = initial;
+
+  return global_finalize_lvalue (inner);
+}
+
 /* Implementation of the various
       gcc::jit::playback::context::new_rvalue_from_const <HOST_TYPE>
    methods.

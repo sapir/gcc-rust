@@ -603,6 +603,20 @@ Global variables
 
       #ifdef LIBGCCJIT_HAVE_gcc_jit_global_set_initializer
 
+.. function:: void
+              gcc_jit_global_set_initializer_value (gcc_jit_lvalue *global,\
+                                                    gcc_jit_rvalue *value)
+
+   Set an initializer for ``global`` using the specified value.
+   ``global`` must be the same type as ``value``.
+
+   This entrypoint was added in :ref:`LIBGCCJIT_ABI_19`; you can test for
+   its presence using
+
+   .. code-block:: c
+
+      #ifdef LIBGCCJIT_HAVE_gcc_jit_global_set_initializer_value
+
 Working with pointers, structs and unions
 -----------------------------------------
 

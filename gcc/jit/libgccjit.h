@@ -810,6 +810,19 @@ gcc_jit_global_set_initializer (gcc_jit_lvalue *global,
 				const void *blob,
 				size_t num_bytes);
 
+#define LIBGCCJIT_HAVE_gcc_jit_global_set_initializer_value
+
+/* Set an initial value for a global, which must be a constant.
+
+   This API entrypoint was added in LIBGCCJIT_ABI_19; you can test for its
+   presence using
+     #ifdef LIBGCCJIT_HAVE_gcc_jit_global_set_initializer_value
+*/
+
+extern void
+gcc_jit_global_set_initializer_value (gcc_jit_lvalue *global,
+				gcc_jit_rvalue *value);
+
 /* Upcasting.  */
 extern gcc_jit_object *
 gcc_jit_lvalue_as_object (gcc_jit_lvalue *lvalue);

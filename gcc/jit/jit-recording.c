@@ -4547,20 +4547,34 @@ recording::block::dump_edges_to_dot (pretty_printer *pp)
 void
 recording::global::replay_into (replayer *r)
 {
-  set_playback_obj (
-    m_initializer
-    ? r->new_global_initialized (playback_location (r, m_loc),
+  playback::lvalue * obj;
+  if (m_initializer)
+  {
+      obj = r->new_global_initialized (playback_location (r, m_loc),
 				 m_kind,
 				 m_type->playback_type (),
 				 m_type->dereference ()->get_size (),
 				 m_initializer_num_bytes
 				 / m_type->dereference ()->get_size (),
 				 m_initializer,
-				 playback_string (m_name))
-    : r->new_global (playback_location (r, m_loc),
+				 playback_string (m_name));
+  }
+  else if (m_initializer_value)
+  {
+      obj = r->new_global_with_value (playback_location (r, m_loc),
+				 m_kind,
+				 m_type->playback_type (),
+				 m_initializer_value->playback_rvalue (),
+				 playback_string (m_name));
+  }
+  else
+  {
+      obj = r->new_global (playback_location (r, m_loc),
 		     m_kind,
 		     m_type->playback_type (),
-		     playback_string (m_name)));
+		     playback_string (m_name));
+  }
+  set_playback_obj (obj);
 }
 
 /* Override the default implementation of
@@ -4674,6 +4688,14 @@ recording::global::write_reproducer (reproducer &r)
     global_kind_reproducer_strings[m_kind],
     r.get_identifier_as_type (get_type ()),
     m_name->get_debug_string ());
+
+  if (m_initializer_value)
+  {
+    r.write ("  gcc_jit_global_set_initializer_value (%s, /* gcc_jit_lvalue *global */\n"
+      "    %s/* gcc_jit_rvalue *value */);\n",
+    id,
+    r.get_identifier_as_rvalue (m_initializer_value));
+  }
 
   if (m_initializer)
     switch (m_type->dereference ()->get_size ())

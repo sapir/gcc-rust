@@ -243,3 +243,12 @@ embedding assembler instructions:
   * :func:`gcc_jit_extended_asm_add_input_operand`
   * :func:`gcc_jit_extended_asm_add_clobber`
   * :func:`gcc_jit_context_add_top_level_asm`
+
+.. _LIBGCCJIT_ABI_19:
+
+``LIBGCCJIT_ABI_19``
+-----------------------
+``LIBGCCJIT_ABI_19`` covers the addition of an API entrypoint to set the value
+of a global variable:
+
+  * :func:`gcc_jit_global_set_initializer_value`
