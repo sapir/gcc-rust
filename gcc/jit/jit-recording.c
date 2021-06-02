@@ -2247,18 +2247,6 @@ recording::memento_of_get_type::get_size ()
     case GCC_JIT_TYPE_UNSIGNED_LONG_LONG:
       size = LONG_LONG_TYPE_SIZE;
       break;
-    case GCC_JIT_TYPE_UINT8_T:
-    case GCC_JIT_TYPE_UINT16_T:
-    case GCC_JIT_TYPE_UINT32_T:
-    case GCC_JIT_TYPE_UINT64_T:
-    case GCC_JIT_TYPE_UINT128_T:
-    case GCC_JIT_TYPE_INT8_T:
-    case GCC_JIT_TYPE_INT16_T:
-    case GCC_JIT_TYPE_INT32_T:
-    case GCC_JIT_TYPE_INT64_T:
-    case GCC_JIT_TYPE_INT128_T:
-      size = 128;
-      break;
     case GCC_JIT_TYPE_FLOAT:
       size = FLOAT_TYPE_SIZE;
       break;
@@ -2307,16 +2295,6 @@ recording::memento_of_get_type::dereference ()
     case GCC_JIT_TYPE_UNSIGNED_LONG:
     case GCC_JIT_TYPE_LONG_LONG:
     case GCC_JIT_TYPE_UNSIGNED_LONG_LONG:
-    case GCC_JIT_TYPE_UINT8_T:
-    case GCC_JIT_TYPE_UINT16_T:
-    case GCC_JIT_TYPE_UINT32_T:
-    case GCC_JIT_TYPE_UINT64_T:
-    case GCC_JIT_TYPE_UINT128_T:
-    case GCC_JIT_TYPE_INT8_T:
-    case GCC_JIT_TYPE_INT16_T:
-    case GCC_JIT_TYPE_INT32_T:
-    case GCC_JIT_TYPE_INT64_T:
-    case GCC_JIT_TYPE_INT128_T:
     case GCC_JIT_TYPE_FLOAT:
     case GCC_JIT_TYPE_DOUBLE:
     case GCC_JIT_TYPE_LONG_DOUBLE:
@@ -2369,16 +2347,6 @@ recording::memento_of_get_type::is_int () const
     case GCC_JIT_TYPE_UNSIGNED_LONG:
     case GCC_JIT_TYPE_LONG_LONG:
     case GCC_JIT_TYPE_UNSIGNED_LONG_LONG:
-    case GCC_JIT_TYPE_UINT8_T:
-    case GCC_JIT_TYPE_UINT16_T:
-    case GCC_JIT_TYPE_UINT32_T:
-    case GCC_JIT_TYPE_UINT64_T:
-    case GCC_JIT_TYPE_UINT128_T:
-    case GCC_JIT_TYPE_INT8_T:
-    case GCC_JIT_TYPE_INT16_T:
-    case GCC_JIT_TYPE_INT32_T:
-    case GCC_JIT_TYPE_INT64_T:
-    case GCC_JIT_TYPE_INT128_T:
       return true;
 
     case GCC_JIT_TYPE_FLOAT:
@@ -2432,16 +2400,6 @@ recording::memento_of_get_type::is_float () const
     case GCC_JIT_TYPE_UNSIGNED_LONG:
     case GCC_JIT_TYPE_LONG_LONG:
     case GCC_JIT_TYPE_UNSIGNED_LONG_LONG:
-    case GCC_JIT_TYPE_UINT8_T:
-    case GCC_JIT_TYPE_UINT16_T:
-    case GCC_JIT_TYPE_UINT32_T:
-    case GCC_JIT_TYPE_UINT64_T:
-    case GCC_JIT_TYPE_UINT128_T:
-    case GCC_JIT_TYPE_INT8_T:
-    case GCC_JIT_TYPE_INT16_T:
-    case GCC_JIT_TYPE_INT32_T:
-    case GCC_JIT_TYPE_INT64_T:
-    case GCC_JIT_TYPE_INT128_T:
       return false;
 
     case GCC_JIT_TYPE_FLOAT:
@@ -2495,16 +2453,6 @@ recording::memento_of_get_type::is_bool () const
     case GCC_JIT_TYPE_UNSIGNED_LONG:
     case GCC_JIT_TYPE_LONG_LONG:
     case GCC_JIT_TYPE_UNSIGNED_LONG_LONG:
-    case GCC_JIT_TYPE_UINT8_T:
-    case GCC_JIT_TYPE_UINT16_T:
-    case GCC_JIT_TYPE_UINT32_T:
-    case GCC_JIT_TYPE_UINT64_T:
-    case GCC_JIT_TYPE_UINT128_T:
-    case GCC_JIT_TYPE_INT8_T:
-    case GCC_JIT_TYPE_INT16_T:
-    case GCC_JIT_TYPE_INT32_T:
-    case GCC_JIT_TYPE_INT64_T:
-    case GCC_JIT_TYPE_INT128_T:
       return false;
 
     case GCC_JIT_TYPE_FLOAT:
@@ -2563,17 +2511,6 @@ static const char * const get_type_strings[] = {
   "long long",           /* GCC_JIT_TYPE_LONG_LONG */
   "unsigned long long",  /* GCC_JIT_TYPE_UNSIGNED_LONG_LONG */
 
-  "__uint8_t",    /* GCC_JIT_TYPE_UINT8_T */
-  "__uint16_t",   /* GCC_JIT_TYPE_UINT16_T */
-  "__uint32_t",   /* GCC_JIT_TYPE_UINT32_T */
-  "__uint64_t",   /* GCC_JIT_TYPE_UINT64_T */
-  "__uint128_t",  /* GCC_JIT_TYPE_UINT128_T */
-  "__int8_t",     /* GCC_JIT_TYPE_INT8_T */
-  "__int16_t",    /* GCC_JIT_TYPE_INT16_T */
-  "__int32_t",    /* GCC_JIT_TYPE_INT32_T */
-  "__int64_t",    /* GCC_JIT_TYPE_INT64_T */
-  "__int128_t",   /* GCC_JIT_TYPE_INT128_T */
-
   "float",        /* GCC_JIT_TYPE_FLOAT */
   "double",       /* GCC_JIT_TYPE_DOUBLE */
   "long double",  /* GCC_JIT_TYPE_LONG_DOUBLE */
@@ -2614,16 +2551,6 @@ static const char * const get_type_enum_strings[] = {
   "GCC_JIT_TYPE_UNSIGNED_LONG",
   "GCC_JIT_TYPE_LONG_LONG",
   "GCC_JIT_TYPE_UNSIGNED_LONG_LONG",
-  "GCC_JIT_TYPE_UINT8_T",
-  "GCC_JIT_TYPE_UINT16_T",
-  "GCC_JIT_TYPE_UINT32_T",
-  "GCC_JIT_TYPE_UINT64_T",
-  "GCC_JIT_TYPE_UINT128_T",
-  "GCC_JIT_TYPE_INT8_T",
-  "GCC_JIT_TYPE_INT16_T",
-  "GCC_JIT_TYPE_INT32_T",
-  "GCC_JIT_TYPE_INT64_T",
-  "GCC_JIT_TYPE_INT128_T",
   "GCC_JIT_TYPE_FLOAT",
   "GCC_JIT_TYPE_DOUBLE",
   "GCC_JIT_TYPE_LONG_DOUBLE",
