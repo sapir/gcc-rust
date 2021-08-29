@@ -1156,6 +1156,11 @@ extern void
 gcc_jit_lvalue_set_tls_model (gcc_jit_lvalue *lvalue,
 			    enum gcc_jit_tls_model model);
 
+/* Make this variable a register variable and set its register name.  */
+void
+gcc_jit_lvalue_set_register_name (gcc_jit_lvalue *lvalue,
+                 const char *reg_name);
+
 extern gcc_jit_lvalue *
 gcc_jit_function_new_local (gcc_jit_function *func,
 			    gcc_jit_location *loc,

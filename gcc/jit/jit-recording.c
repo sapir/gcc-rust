@@ -3827,6 +3827,11 @@ recording::lvalue::set_tls_model (enum gcc_jit_tls_model model)
     m_tls_model = model;
 }
 
+void recording::lvalue::set_register_name (const char *reg_name)
+{
+  m_reg_name = new_string (reg_name);
+}
+
 /* The implementation of class gcc::jit::recording::param.  */
 
 /* Implementation of pure virtual hook recording::memento::replay_into
@@ -6234,11 +6239,15 @@ recording::function_pointer::write_reproducer (reproducer &r)
 void
 recording::local::replay_into (replayer *r)
 {
-  set_playback_obj (
-    m_func->playback_function ()
+  playback::lvalue *obj = m_func->playback_function ()
       ->new_local (playback_location (r, m_loc),
 		   m_type->playback_type (),
-		   playback_string (m_name)));
+		   playback_string (m_name));
+  if (m_reg_name != NULL)
+  {
+    obj->set_reg_name(m_reg_name->c_str());
+  }
+  set_playback_obj (obj);
 }
 
 /* Override the default implementation of

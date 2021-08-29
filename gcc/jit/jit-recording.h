@@ -1119,6 +1119,7 @@ public:
 	  type *type_)
     : rvalue (ctxt, loc, type_),
       m_link_section (NULL),
+      m_reg_name (NULL),
     m_tls_model (GCC_JIT_TLS_MODEL_DEFAULT)
     {}
 
@@ -1143,9 +1144,11 @@ public:
   virtual bool is_global () const { return false; }
   void set_link_section (const char *name);
   void set_tls_model (enum gcc_jit_tls_model model);
+  void set_register_name (const char *reg_name);
 
 protected:
   string *m_link_section;
+  string *m_reg_name;
   enum gcc_jit_tls_model m_tls_model;
 };
 

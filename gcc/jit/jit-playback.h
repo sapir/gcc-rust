@@ -24,6 +24,7 @@ along with GCC; see the file COPYING3.  If not see
 #include <utility> // for std::pair
 
 #include "timevar.h"
+#include "varasm.h"
 
 #include "jit-recording.h"
 
@@ -694,6 +695,14 @@ public:
   set_tls_model (enum tls_model tls_model)
   {
     set_decl_tls_model (m_inner, tls_model);
+  }
+
+  void
+  set_reg_name (const char* reg_name)
+  {
+    set_user_assembler_name (m_inner, reg_name);
+    DECL_REGISTER (m_inner) = 1;
+    DECL_HARD_REGISTER (m_inner) = 1;
   }
 
 private:
