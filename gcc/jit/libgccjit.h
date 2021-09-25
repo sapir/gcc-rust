@@ -848,6 +848,19 @@ gcc_jit_global_set_initializer (gcc_jit_lvalue *global,
 				const void *blob,
 				size_t num_bytes);
 
+#define LIBGCCJIT_HAVE_gcc_jit_global_set_initializer_value
+
+/* Set an initial value for a global, which must be a constant.
+
+   This API entrypoint was added in LIBGCCJIT_ABI_19; you can test for its
+   presence using
+     #ifdef LIBGCCJIT_HAVE_gcc_jit_global_set_initializer_value
+*/
+
+extern void
+gcc_jit_global_set_initializer_value (gcc_jit_lvalue *global,
+				      gcc_jit_rvalue *value);
+
 /* Upcasting.  */
 extern gcc_jit_object *
 gcc_jit_lvalue_as_object (gcc_jit_lvalue *lvalue);
@@ -900,6 +913,20 @@ gcc_jit_context_null (gcc_jit_context *ctxt,
 extern gcc_jit_rvalue *
 gcc_jit_context_new_string_literal (gcc_jit_context *ctxt,
 				    const char *value);
+
+extern gcc_jit_rvalue *
+gcc_jit_context_new_rvalue_from_struct (gcc_jit_context *ctxt,
+					gcc_jit_location *loc,
+					gcc_jit_struct *struct_type,
+					size_t num_elements,
+					gcc_jit_rvalue **fields);
+
+extern gcc_jit_rvalue *
+gcc_jit_context_new_rvalue_from_array (gcc_jit_context *ctxt,
+					gcc_jit_location *loc,
+					gcc_jit_type *type,
+					size_t num_elements,
+					gcc_jit_rvalue **elements);
 
 enum gcc_jit_unary_op
 {

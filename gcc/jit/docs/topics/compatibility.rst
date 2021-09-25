@@ -302,3 +302,12 @@ thread-local storage model of a variable:
 section of a variable:
 
   * :func:`gcc_jit_lvalue_set_link_section`
+
+.. _LIBGCCJIT_ABI_19:
+
+``LIBGCCJIT_ABI_19``
+-----------------------
+``LIBGCCJIT_ABI_19`` covers the addition of an API entrypoint to set the value
+of a global variable:
+
+  * :func:`gcc_jit_global_set_initializer_value`

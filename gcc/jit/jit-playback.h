@@ -121,6 +121,17 @@ public:
                           const void *initializer,
                           const char *name);
 
+  lvalue*
+  new_global_with_value (location *loc,
+			 enum gcc_jit_global_kind kind,
+			 type *type,
+			 rvalue *value,
+			 const char *name);
+
+  void
+  set_global_initial_value (playback::lvalue *global,
+              playback::rvalue *value);
+
   template <typename HOST_TYPE>
   rvalue *
   new_rvalue_from_const (type *type,
@@ -133,6 +144,16 @@ public:
   new_rvalue_from_vector (location *loc,
 			  type *type,
 			  const auto_vec<rvalue *> &elements);
+
+  rvalue *
+  new_rvalue_from_struct (location *loc,
+			  type *type,
+			  const auto_vec<rvalue *> &fields);
+
+  rvalue *
+  new_rvalue_from_array (location *loc,
+			 type *type,
+			 const auto_vec<rvalue *> &elements);
 
   rvalue *
   new_unary_op (location *loc,

@@ -149,6 +149,10 @@ public:
 	      type *type,
 	      const char *name);
 
+  void
+  new_global_value_initializer (recording::lvalue *global,
+				recording::rvalue *value);
+
   template <typename HOST_TYPE>
   rvalue *
   new_rvalue_from_const (type *type,
@@ -161,6 +165,16 @@ public:
   new_rvalue_from_vector (location *loc,
 			  vector_type *type,
 			  rvalue **elements);
+
+  rvalue *
+  new_rvalue_from_struct (location *loc,
+			  struct_ *type,
+			  rvalue **fields);
+
+  rvalue *
+  new_rvalue_from_array (location *loc,
+			 array_type *type,
+			 rvalue **elements);
 
   rvalue *
   new_unary_op (location *loc,
@@ -527,6 +541,7 @@ public:
   virtual function_type *as_a_function_type() { gcc_unreachable (); return NULL; }
   virtual struct_ *dyn_cast_struct () { return NULL; }
   virtual vector_type *dyn_cast_vector_type () { return NULL; }
+  virtual array_type *dyn_cast_array_type () { return NULL; }
 
   /* Is it typesafe to copy to this type from rtype?  */
   virtual bool accepts_writes_from (type *rtype)
@@ -777,6 +792,8 @@ class array_type : public type
   {}
 
   type *dereference () FINAL OVERRIDE;
+
+  array_type *dyn_cast_array_type () FINAL OVERRIDE { return this; }
 
   bool is_int () const FINAL OVERRIDE { return false; }
   bool is_float () const FINAL OVERRIDE { return false; }
@@ -1146,6 +1163,11 @@ public:
   void set_tls_model (enum gcc_jit_tls_model model);
   void set_register_name (const char *reg_name);
 
+  // TODO: does the following make sense?
+  bool is_constant () const FINAL OVERRIDE {
+      return is_global();
+  }
+
 protected:
   string *m_link_section;
   string *m_reg_name;
@@ -1383,6 +1405,7 @@ public:
     m_name (name)
   {
     m_initializer = NULL;
+    m_initializer_value = NULL;
     m_initializer_num_bytes = 0;
   }
   ~global ()
@@ -1409,6 +1432,12 @@ public:
     m_initializer_num_bytes = num_bytes;
   }
 
+  void
+  set_initializer_value (rvalue* value)
+  {
+    m_initializer_value = value;
+  }
+
 private:
   string * make_debug_string () FINAL OVERRIDE { return m_name; }
   template <typename T>
@@ -1423,7 +1452,28 @@ private:
   enum gcc_jit_global_kind m_kind;
   string *m_name;
   void *m_initializer;
+  rvalue *m_initializer_value;
   size_t m_initializer_num_bytes;
+};
+
+class global_initializer : public memento
+{
+public:
+  void write_to_dump (dump &d) FINAL OVERRIDE;
+  void replay_into (replayer *) FINAL OVERRIDE;
+
+  global_initializer (lvalue *global, rvalue *value)
+  : memento (global->m_ctxt),
+    m_global (global),
+    m_value (value) {}
+
+private:
+  void write_reproducer (reproducer &r) FINAL OVERRIDE;
+  string * make_debug_string () FINAL OVERRIDE;
+
+private:
+  lvalue *m_global;
+  rvalue *m_value;
 };
 
 template <typename HOST_TYPE>
@@ -1470,6 +1520,8 @@ public:
 
   void visit_children (rvalue_visitor *) FINAL OVERRIDE {}
 
+  virtual bool is_constant () const { return true; }
+
 private:
   string * make_debug_string () FINAL OVERRIDE;
   void write_reproducer (reproducer &r) FINAL OVERRIDE;
@@ -1505,6 +1557,78 @@ private:
 private:
   vector_type *m_vector_type;
   auto_vec<rvalue *> m_elements;
+};
+
+class memento_of_new_rvalue_from_array : public rvalue
+{
+public:
+  memento_of_new_rvalue_from_array (context *ctxt,
+				    location *loc,
+				    array_type *type,
+				    rvalue **elements);
+
+  void replay_into (replayer *r) FINAL OVERRIDE;
+
+  void visit_children (rvalue_visitor *) FINAL OVERRIDE;
+
+  virtual bool is_constant () const {
+      for (rvalue *element : m_elements)
+      {
+          if (!element->is_constant ())
+          {
+              return false;
+          }
+      }
+      return true;
+  }
+
+private:
+  string * make_debug_string () FINAL OVERRIDE;
+  void write_reproducer (reproducer &r) FINAL OVERRIDE;
+  enum precedence get_precedence () const FINAL OVERRIDE
+  {
+    return PRECEDENCE_PRIMARY;
+  }
+
+private:
+  array_type *m_array_type;
+  auto_vec<rvalue *> m_elements;
+};
+
+class memento_of_new_rvalue_from_struct : public rvalue
+{
+public:
+  memento_of_new_rvalue_from_struct (context *ctxt,
+				     location *loc,
+				     struct_ *type,
+				     rvalue **fields);
+
+  void replay_into (replayer *r) FINAL OVERRIDE;
+
+  void visit_children (rvalue_visitor *) FINAL OVERRIDE;
+
+  virtual bool is_constant () const {
+      for (rvalue *field : m_fields)
+      {
+          if (!field->is_constant ())
+          {
+              return false;
+          }
+      }
+      return true;
+  }
+
+private:
+  string * make_debug_string () FINAL OVERRIDE;
+  void write_reproducer (reproducer &r) FINAL OVERRIDE;
+  enum precedence get_precedence () const FINAL OVERRIDE
+  {
+    return PRECEDENCE_PRIMARY;
+  }
+
+private:
+  struct_ *m_struct_type;
+  auto_vec<rvalue *> m_fields;
 };
 
 class unary_op : public rvalue
@@ -1553,6 +1677,10 @@ public:
   void replay_into (replayer *r) FINAL OVERRIDE;
 
   void visit_children (rvalue_visitor *v) FINAL OVERRIDE;
+
+  virtual bool is_constant () const {
+      return m_a->is_constant () && m_b->is_constant ();
+  }
 
 private:
   string * make_debug_string () FINAL OVERRIDE;
@@ -1608,6 +1736,10 @@ public:
 
   void visit_children (rvalue_visitor *v) FINAL OVERRIDE;
 
+  virtual bool is_constant () const {
+      return m_rvalue->is_constant ();
+  }
+
 private:
   string * make_debug_string () FINAL OVERRIDE;
   void write_reproducer (reproducer &r) FINAL OVERRIDE;
@@ -1634,6 +1766,10 @@ public:
   void replay_into (replayer *r) FINAL OVERRIDE;
 
   void visit_children (rvalue_visitor *v) FINAL OVERRIDE;
+
+  virtual bool is_constant () const {
+      return m_rvalue->is_constant ();
+  }
 
 private:
   string * make_debug_string () FINAL OVERRIDE;
@@ -1873,6 +2009,10 @@ public:
 
   void visit_children (rvalue_visitor *v) FINAL OVERRIDE;
 
+  virtual bool is_constant () const {
+      return m_lvalue->is_constant ();
+  }
+
 private:
   string * make_debug_string () FINAL OVERRIDE;
   void write_reproducer (reproducer &r) FINAL OVERRIDE;
@@ -1898,6 +2038,8 @@ public:
   void replay_into (replayer *r) FINAL OVERRIDE;
 
   void visit_children (rvalue_visitor *v) FINAL OVERRIDE;
+
+  virtual bool is_constant () const { return true; }
 
 private:
   string * make_debug_string () FINAL OVERRIDE;

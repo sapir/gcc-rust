@@ -1066,6 +1066,21 @@ recording::context::new_global (recording::location *loc,
   return result;
 }
 
+/* Create a memento instance to initialize a global variable and add it to this
+ * context's list of mementos.
+
+   Implements the post-error-checking part of
+   gcc_jit_global_set_initializer_value.  */
+
+void
+recording::context::new_global_value_initializer (recording::lvalue *global,
+				recording::rvalue *value)
+{
+  recording::global_initializer *result =
+    new recording::global_initializer (global, value);
+  record (result);
+}
+
 /* Create a recording::memento_of_new_string_literal instance and add it
    to this context's list of mementos.
 
@@ -1077,6 +1092,40 @@ recording::context::new_string_literal (const char *value)
 {
   recording::rvalue *result =
     new memento_of_new_string_literal (this, NULL, new_string (value));
+  record (result);
+  return result;
+}
+
+/* Create a recording::memento_of_new_rvalue_from_struct instance and add it
+   to this context's list of mementos.
+
+   Implements the post-error-checking part of
+   gcc_jit_context_new_rvalue_from_struct.  */
+
+recording::rvalue *
+recording::context::new_rvalue_from_struct (location *loc,
+					    struct_ *type,
+					    rvalue **fields)
+{
+  recording::rvalue *result =
+    new memento_of_new_rvalue_from_struct (this, loc, type, fields);
+  record (result);
+  return result;
+}
+
+/* Create a recording::memento_of_new_rvalue_from_array instance and add it
+   to this context's list of mementos.
+
+   Implements the post-error-checking part of
+   gcc_jit_context_new_rvalue_from_array.  */
+
+recording::rvalue *
+recording::context::new_rvalue_from_array (location *loc,
+					   array_type *type,
+					   rvalue **elements)
+{
+  recording::rvalue *result =
+    new memento_of_new_rvalue_from_array (this, loc, type, elements);
   record (result);
   return result;
 }
@@ -4687,6 +4736,14 @@ recording::global::replay_into (replayer *r)
 				 m_initializer,
 				 playback_string (m_name));
   }
+  else if (m_initializer_value)
+  {
+      global = r->new_global_with_value (playback_location (r, m_loc),
+				 m_kind,
+				 m_type->playback_type (),
+				 m_initializer_value->playback_rvalue (),
+				 playback_string (m_name));
+  }
   else
   {
       global = r->new_global (playback_location (r, m_loc),
@@ -4842,6 +4899,14 @@ recording::global::write_reproducer (reproducer &r)
     tls_model_enum_strings[m_tls_model]);
   }
 
+  if (m_initializer_value)
+  {
+    r.write ("  gcc_jit_global_set_initializer_value (%s, /* gcc_jit_lvalue *global */\n"
+      "    %s/* gcc_jit_rvalue *value */);\n",
+    id,
+    r.get_identifier_as_rvalue (m_initializer_value));
+  }
+
   if (m_initializer)
     switch (m_type->dereference ()->get_size ())
       {
@@ -4862,6 +4927,49 @@ recording::global::write_reproducer (reproducer &r)
 	   these are all covered by the previous cases.  */
 	gcc_unreachable ();
       }
+}
+
+/* The implementation of class gcc::jit::recording::global_initializer.  */
+
+/* Implementation of pure virtual hook recording::memento::replay_into
+   for recording::global_initializer.  */
+
+void
+recording::global_initializer::replay_into (replayer *r)
+{
+  r->set_global_initial_value(m_global->playback_lvalue (), m_value->playback_rvalue ());
+}
+
+/* Override the default implementation of
+   recording::memento::write_to_dump for globals.
+   This will be of the form:
+
+        TODO
+
+   These are written to the top of the dump by
+   recording::context::dump_to_file.  */
+
+void
+recording::global_initializer::write_to_dump (dump &d)
+{
+    // TODO
+}
+
+recording::string *
+recording::global_initializer::make_debug_string ()
+{
+  // TODO
+  return string::from_printf (m_ctxt,
+				"<GLOBAL INITIALIZER %p>",
+				(void *)this);
+}
+
+/* Implementation of recording::memento::write_reproducer for global initializers. */
+
+void
+recording::global_initializer::write_reproducer (reproducer &r)
+{
+    // TODO
 }
 
 /* The implementation of the various const-handling classes:
@@ -5235,6 +5343,148 @@ recording::memento_of_new_rvalue_from_vector::write_reproducer (reproducer &r)
 	   r.get_identifier (m_vector_type),
 	   m_elements.length (),
 	   elements_id);
+}
+
+/* The implementation of class
+   gcc::jit::recording::memento_of_new_rvalue_from_struct.  */
+
+/* The constructor for
+   gcc::jit::recording::memento_of_new_rvalue_from_struct.  */
+
+recording::memento_of_new_rvalue_from_struct::
+memento_of_new_rvalue_from_struct (context *ctxt,
+				   location *loc,
+				   struct_ *type,
+				   rvalue **fields)
+: rvalue (ctxt, loc, type),
+  m_struct_type (type),
+  m_fields ()
+{
+  for (int i = 0; i < type->get_fields ()->length (); i++)
+    m_fields.safe_push (fields[i]);
+}
+
+/* Implementation of pure virtual hook recording::memento::replay_into
+   for recording::memento_of_new_rvalue_from_struct.  */
+
+void
+recording::memento_of_new_rvalue_from_struct::replay_into (replayer *r)
+{
+  auto_vec<playback::rvalue *> playback_fields;
+  playback_fields.create (m_fields.length ());
+  for (unsigned i = 0; i< m_fields.length (); i++)
+    playback_fields.safe_push (m_fields[i]->playback_rvalue ());
+
+  set_playback_obj (r->new_rvalue_from_struct (playback_location (r, m_loc),
+					       m_type->playback_type (),
+					       playback_fields));
+}
+
+/* Implementation of pure virtual hook recording::rvalue::visit_children
+   for recording::memento_of_new_rvalue_from_struct.  */
+
+void
+recording::memento_of_new_rvalue_from_struct::visit_children (rvalue_visitor *v)
+{
+  for (unsigned i = 0; i< m_fields.length (); i++)
+    v->visit (m_fields[i]);
+}
+
+/* Implementation of recording::memento::make_debug_string for
+   vectors.  */
+
+recording::string *
+recording::memento_of_new_rvalue_from_struct::make_debug_string ()
+{
+  comma_separated_string fields (m_fields, get_precedence ());
+
+  /* Now build a string.  */
+  string *result = string::from_printf (m_ctxt,
+					"{%s}",
+					fields.as_char_ptr ());
+
+ return result;
+
+}
+
+/* Implementation of recording::memento::write_reproducer for
+   vectors.  */
+
+void
+recording::memento_of_new_rvalue_from_struct::write_reproducer (reproducer &r)
+{
+  // TODO
+}
+
+/* The implementation of class
+   gcc::jit::recording::memento_of_new_rvalue_from_array.  */
+
+/* The constructor for
+   gcc::jit::recording::memento_of_new_rvalue_from_array.  */
+
+recording::memento_of_new_rvalue_from_array::
+memento_of_new_rvalue_from_array (context *ctxt,
+				  location *loc,
+				  array_type *type,
+				  rvalue **elements)
+: rvalue (ctxt, loc, type),
+  m_array_type (type),
+  m_elements ()
+{
+  for (int i = 0; i < type->num_elements (); i++)
+    m_elements.safe_push (elements[i]);
+}
+
+/* Implementation of pure virtual hook recording::memento::replay_into
+   for recording::memento_of_new_rvalue_from_array.  */
+
+void
+recording::memento_of_new_rvalue_from_array::replay_into (replayer *r)
+{
+  auto_vec<playback::rvalue *> playback_elements;
+  playback_elements.create (m_elements.length ());
+  for (unsigned i = 0; i< m_elements.length (); i++)
+    playback_elements.safe_push (m_elements[i]->playback_rvalue ());
+
+  set_playback_obj (r->new_rvalue_from_array (playback_location (r, m_loc),
+					      m_type->playback_type (),
+					      playback_elements));
+}
+
+/* Implementation of pure virtual hook recording::rvalue::visit_children
+   for recording::memento_of_new_rvalue_from_array.  */
+
+void
+recording::memento_of_new_rvalue_from_array::visit_children (rvalue_visitor *v)
+{
+  for (unsigned i = 0; i< m_elements.length (); i++)
+    v->visit (m_elements[i]);
+}
+
+/* Implementation of recording::memento::make_debug_string for
+   vectors.  */
+
+recording::string *
+recording::memento_of_new_rvalue_from_array::make_debug_string ()
+{
+  comma_separated_string elements (m_elements, get_precedence ());
+
+  /* Now build a string.  */
+  string *result = string::from_printf (m_ctxt,
+					"{%s}",
+					elements.as_char_ptr ());
+
+ return result;
+
+}
+
+/* Implementation of recording::memento::write_reproducer for
+   vectors.  */
+
+void
+recording::memento_of_new_rvalue_from_array::write_reproducer (reproducer &r)
+{
+  // TODO
 }
 
 /* The implementation of class gcc::jit::recording::unary_op.  */

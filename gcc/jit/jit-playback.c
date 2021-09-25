@@ -702,6 +702,39 @@ new_global_initialized (location *loc,
   return global_finalize_lvalue (inner);
 }
 
+playback::lvalue *
+playback::context::
+new_global_with_value (location *loc,
+		       enum gcc_jit_global_kind kind,
+		       type *type,
+		       playback::rvalue *value,
+		       const char *name)
+{
+  tree inner = global_new_decl (loc, kind, type, name);
+
+  tree inner_type = type->as_tree ();
+  tree initial = value->as_tree ();
+  gcc_assert (TREE_CONSTANT (initial));
+  DECL_INITIAL (inner) = initial;
+
+  return global_finalize_lvalue (inner);
+}
+
+void
+playback::context::
+set_global_initial_value (playback::lvalue *global,
+        playback::rvalue *value)
+{
+  tree initial = value->as_tree ();
+  if (!TREE_CONSTANT(initial))
+  {
+    add_error (NULL, "initial value for global is not a constant");
+    debug_tree (initial);
+    gcc_assert(TREE_CONSTANT(initial));
+  }
+  DECL_INITIAL (global->as_tree ()) = initial;
+}
+
 /* Implementation of the various
       gcc::jit::playback::context::new_rvalue_from_const <HOST_TYPE>
    methods.
@@ -848,6 +881,46 @@ playback::context::new_rvalue_from_vector (location *,
   vec_alloc (v, elements.length ());
   for (unsigned i = 0; i < elements.length (); ++i)
     CONSTRUCTOR_APPEND_ELT (v, NULL_TREE, elements[i]->as_tree ());
+  tree t_ctor = build_constructor (type->as_tree (), v);
+  return new rvalue (this, t_ctor);
+}
+
+/* Construct a playback::rvalue instance (wrapping a tree) for a
+   struct.  */
+
+playback::rvalue *
+playback::context::new_rvalue_from_struct (location *,
+					   type *type,
+					   const auto_vec<rvalue *> &fields)
+{
+  vec<constructor_elt, va_gc> *v;
+  vec_alloc (v, fields.length ());
+  tree field_decl = TYPE_FIELDS (type->as_tree ());
+  for (unsigned i = 0; i < fields.length (); ++i)
+  {
+    CONSTRUCTOR_APPEND_ELT (v, field_decl, fields[i]->as_tree ());
+    field_decl = TREE_CHAIN (field_decl);
+  }
+
+  tree t_ctor = build_constructor (type->as_tree (), v);
+  return new rvalue (this, t_ctor);
+}
+
+/* Construct a playback::rvalue instance (wrapping a tree) for a
+   array.  */
+
+playback::rvalue *
+playback::context::new_rvalue_from_array (location *,
+					  type *type,
+					  const auto_vec<rvalue *> &elements)
+{
+  vec<constructor_elt, va_gc> *v;
+  vec_alloc (v, elements.length ());
+  for (unsigned i = 0; i < elements.length (); ++i)
+  {
+    tree index = build_int_cst (long_unsigned_type_node, i);
+    CONSTRUCTOR_APPEND_ELT (v, index, elements[i]->as_tree ());
+  }
   tree t_ctor = build_constructor (type->as_tree (), v);
   return new rvalue (this, t_ctor);
 }

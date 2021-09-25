@@ -117,6 +117,7 @@ namespace recording {
       class compound_type;
         class struct_;
 	class union_;
+      class array_type;
       class vector_type;
     class field;
       class bitfield;

@@ -277,6 +277,17 @@ struct gcc_jit_extended_asm : public gcc::jit::recording::extended_asm
       }								\
   JIT_END_STMT
 
+#define RETURN_IF_FAIL_PRINTF5(TEST_EXPR, CTXT, LOC, ERR_FMT, A0, A1, A2, A3, \
+			       A4) \
+  JIT_BEGIN_STMT							\
+    if (!(TEST_EXPR))							\
+      {								\
+	jit_error ((CTXT), (LOC), "%s: " ERR_FMT,			\
+		   __func__, (A0), (A1), (A2), (A3), (A4));		\
+	return;							\
+      }								\
+  JIT_END_STMT
+
 /* Check that BLOCK is non-NULL, and that it's OK to add statements to
    it.  This will fail if BLOCK has already been terminated by some
    kind of jump or a return.  */
@@ -1419,6 +1430,42 @@ gcc_jit_global_set_initializer (gcc_jit_lvalue *global,
 
 /* Public entrypoint.  See description in libgccjit.h.
 
+   After error-checking, the real work is done by the
+   gcc::jit::recording::global::set_initializer_value method, in
+   jit-recording.c.  */
+
+void
+gcc_jit_global_set_initializer_value (gcc_jit_lvalue *global,
+				      gcc_jit_rvalue *value)
+{
+  // TODO: fail if global kind is imported.
+  RETURN_IF_FAIL (global, NULL, NULL, "NULL global");
+  RETURN_IF_FAIL (value, NULL, NULL, "NULL value");
+  RETURN_IF_FAIL_PRINTF1 (global->is_global (), NULL, NULL,
+			       "lvalue \"%s\" not a global",
+			       global->get_debug_string ());
+
+      RETURN_IF_FAIL_PRINTF5 (
+	compatible_types (global->get_type (),
+			  value->get_type ()),
+	NULL, NULL,
+	"mismatching types for global \"%s\":"
+	" assignment to global %s (type: %s) from %s (type: %s)",
+	global->get_debug_string (),
+	global->get_debug_string (),
+	global->get_type ()->get_debug_string (),
+	value->get_debug_string (),
+	value->get_type ()->get_debug_string ());
+
+  RETURN_IF_FAIL_PRINTF1 (value->is_constant (), NULL, NULL,
+			       "rvalue \"%s\" not a constant",
+			       value->get_debug_string ());
+
+  global->get_context ()->new_global_value_initializer (global, value);
+}
+
+/* Public entrypoint.  See description in libgccjit.h.
+
    After error-checking, this calls the trivial
    gcc::jit::recording::memento::as_object method (an lvalue is a
    memento), in jit-recording.h.  */
@@ -1637,6 +1684,112 @@ gcc_jit_context_new_string_literal (gcc_jit_context *ctxt,
   RETURN_NULL_IF_FAIL (value, ctxt, NULL, "NULL value");
 
   return (gcc_jit_rvalue *)ctxt->new_string_literal (value);
+}
+
+/* Public entrypoint.  See description in libgccjit.h.
+
+   After error-checking, the real work is done by the
+   gcc::jit::recording::context::new_rvalue_from_struct method in
+   jit-recording.c.  */
+
+gcc_jit_rvalue *
+gcc_jit_context_new_rvalue_from_struct (gcc_jit_context *ctxt,
+					gcc_jit_location *loc,
+					gcc_jit_struct *struct_type,
+					size_t num_elements,
+					gcc_jit_rvalue **fields)
+{
+  RETURN_NULL_IF_FAIL (ctxt, NULL, NULL, "NULL context");
+  JIT_LOG_FUNC (ctxt->get_logger ());
+
+  /* LOC can be NULL.  */
+  RETURN_NULL_IF_FAIL (struct_type, ctxt, loc, "NULL struct_type");
+
+  /* "num_elements" must match.  */
+  RETURN_NULL_IF_FAIL_PRINTF1 (
+    num_elements == (size_t) struct_type->get_fields ()->length (), ctxt, loc,
+    "num_elements != %d", struct_type->get_fields ()->length ());
+
+  /* "fields must be non-NULL.  */
+  RETURN_NULL_IF_FAIL (fields, ctxt, loc, "NULL fields");
+
+  /* Each of "fields" must be non-NULL and of the correct type.  */
+  for (size_t i = 0; i < num_elements; i++)
+    {
+      RETURN_NULL_IF_FAIL_PRINTF1 (
+	fields[i], ctxt, loc, "NULL fields[%zi]", i);
+      gcc::jit::recording::type *field_type
+	= struct_type->get_fields ()->get_field (i)->get_type ();
+      RETURN_NULL_IF_FAIL_PRINTF4 (
+	compatible_types (field_type,
+			  fields[i]->get_type ()),
+	ctxt, loc,
+	"mismatching type for field[%zi] (expected type: %s): %s (type: %s)",
+	i,
+	field_type->get_debug_string (),
+	fields[i]->get_debug_string (),
+	fields[i]->get_type ()->get_debug_string ());
+      RETURN_NULL_IF_FAIL_PRINTF2 (fields[i]->is_constant (), ctxt, NULL,
+				   "fields[%ld] is not a constant: %s", i,
+				   fields[i]->get_debug_string ());
+    }
+
+  return (gcc_jit_rvalue *)ctxt->new_rvalue_from_struct (loc, struct_type, (gcc::jit::recording::rvalue **)fields);
+}
+
+/* Public entrypoint.  See description in libgccjit.h.
+
+   After error-checking, the real work is done by the
+   gcc::jit::recording::context::new_rvalue_from_array method in
+   jit-recording.c.  */
+
+gcc_jit_rvalue *
+gcc_jit_context_new_rvalue_from_array (gcc_jit_context *ctxt,
+					gcc_jit_location *loc,
+					gcc_jit_type *type,
+					size_t num_elements,
+					gcc_jit_rvalue **elements)
+{
+  RETURN_NULL_IF_FAIL (ctxt, NULL, NULL, "NULL context");
+  JIT_LOG_FUNC (ctxt->get_logger ());
+
+  /* LOC can be NULL.  */
+  RETURN_NULL_IF_FAIL (type, ctxt, loc, "NULL type");
+
+  /* "type" must be an array type.  */
+  gcc::jit::recording::array_type *array_type
+    = type->dyn_cast_array_type ();
+  RETURN_NULL_IF_FAIL_PRINTF1 (array_type, ctxt, loc,
+			       "%s is not an array type",
+			       type->get_debug_string ());
+
+  /* "num_elements" must match.  */
+  RETURN_NULL_IF_FAIL_PRINTF1 (
+    num_elements == (size_t) array_type->num_elements (), ctxt, loc,
+    "num_elements != %d", array_type->num_elements ());
+
+  /* "elements must be non-NULL.  */
+  RETURN_NULL_IF_FAIL (elements, ctxt, loc, "NULL elements");
+
+  /* Each of "elements" must be non-NULL and of the correct type.  */
+  gcc::jit::recording::type *element_type
+    = array_type->is_array ();
+  for (size_t i = 0; i < num_elements; i++)
+    {
+      RETURN_NULL_IF_FAIL_PRINTF1 (
+	elements[i], ctxt, loc, "NULL elements[%zi]", i);
+      RETURN_NULL_IF_FAIL_PRINTF4 (
+	compatible_types (element_type,
+			  elements[i]->get_type ()),
+	ctxt, loc,
+	"mismatching type for array[%zi] (expected type: %s): %s (type: %s)",
+	i,
+	element_type->get_debug_string (),
+	elements[i]->get_debug_string (),
+	elements[i]->get_type ()->get_debug_string ());
+    }
+
+  return (gcc_jit_rvalue *)ctxt->new_rvalue_from_array (loc, array_type, (gcc::jit::recording::rvalue **)elements);
 }
 
 /* Public entrypoint.  See description in libgccjit.h.
