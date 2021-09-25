@@ -4687,14 +4687,6 @@ recording::global::replay_into (replayer *r)
 				 m_initializer,
 				 playback_string (m_name));
   }
-  else if (m_initializer_value)
-  {
-      global = r->new_global_with_value (playback_location (r, m_loc),
-				 m_kind,
-				 m_type->playback_type (),
-				 m_initializer_value->playback_rvalue (),
-				 playback_string (m_name));
-  }
   else
   {
       global = r->new_global (playback_location (r, m_loc),
@@ -4833,14 +4825,6 @@ recording::global::write_reproducer (reproducer &r)
     global_kind_reproducer_strings[m_kind],
     r.get_identifier_as_type (get_type ()),
     m_name->get_debug_string ());
-
-  if (m_initializer_value)
-  {
-    r.write ("  gcc_jit_global_set_initializer_value (%s, /* gcc_jit_lvalue *global */\n"
-      "    %s/* gcc_jit_rvalue *value */);\n",
-    id,
-    r.get_identifier_as_rvalue (m_initializer_value));
-  }
 
   if (m_link_section != NULL)
   {

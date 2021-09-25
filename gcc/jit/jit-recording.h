@@ -1383,7 +1383,6 @@ public:
     m_name (name)
   {
     m_initializer = NULL;
-    m_initializer_value = NULL;
     m_initializer_num_bytes = 0;
   }
   ~global ()
@@ -1410,12 +1409,6 @@ public:
     m_initializer_num_bytes = num_bytes;
   }
 
-  void
-  set_initializer_value (rvalue* value)
-  {
-    m_initializer_value = value;
-  }
-
 private:
   string * make_debug_string () FINAL OVERRIDE { return m_name; }
   template <typename T>
@@ -1430,7 +1423,6 @@ private:
   enum gcc_jit_global_kind m_kind;
   string *m_name;
   void *m_initializer;
-  rvalue *m_initializer_value;
   size_t m_initializer_num_bytes;
 };
 

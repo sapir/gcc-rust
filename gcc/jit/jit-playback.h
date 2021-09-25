@@ -121,13 +121,6 @@ public:
                           const void *initializer,
                           const char *name);
 
-  lvalue*
-  new_global_with_value (location *loc,
-			 enum gcc_jit_global_kind kind,
-			 type *type,
-			 rvalue *value,
-			 const char *name);
-
   template <typename HOST_TYPE>
   rvalue *
   new_rvalue_from_const (type *type,

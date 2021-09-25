@@ -277,17 +277,6 @@ struct gcc_jit_extended_asm : public gcc::jit::recording::extended_asm
       }								\
   JIT_END_STMT
 
-#define RETURN_IF_FAIL_PRINTF5(TEST_EXPR, CTXT, LOC, ERR_FMT, A0, A1, A2, A3, \
-			       A4) \
-  JIT_BEGIN_STMT							\
-    if (!(TEST_EXPR))							\
-      {								\
-	jit_error ((CTXT), (LOC), "%s: " ERR_FMT,			\
-		   __func__, (A0), (A1), (A2), (A3), (A4));		\
-	return;							\
-      }								\
-  JIT_END_STMT
-
 /* Check that BLOCK is non-NULL, and that it's OK to add statements to
    it.  This will fail if BLOCK has already been terminated by some
    kind of jump or a return.  */
@@ -1426,38 +1415,6 @@ gcc_jit_global_set_initializer (gcc_jit_lvalue *global,
     ->set_initializer (blob, num_bytes);
 
   return global;
-}
-
-/* Public entrypoint.  See description in libgccjit.h.
-
-   After error-checking, the real work is done by the
-   gcc::jit::recording::global::set_initializer_value method, in
-   jit-recording.c.  */
-
-void
-gcc_jit_global_set_initializer_value (gcc_jit_lvalue *global,
-				gcc_jit_rvalue *value)
-{
-  RETURN_IF_FAIL (global, NULL, NULL, "NULL global");
-  RETURN_IF_FAIL (value, NULL, NULL, "NULL value");
-  RETURN_IF_FAIL_PRINTF1 (global->is_global (), NULL, NULL,
-			       "lvalue \"%s\" not a global",
-			       global->get_debug_string ());
-
-      RETURN_IF_FAIL_PRINTF5 (
-	compatible_types (global->get_type (),
-			  value->get_type ()),
-	NULL, NULL,
-	"mismatching types for global \"%s\":"
-	" assignment to global %s (type: %s) from %s (type: %s)",
-	global->get_debug_string (),
-	global->get_debug_string (),
-	global->get_type ()->get_debug_string (),
-	value->get_debug_string (),
-	value->get_type ()->get_debug_string ());
-
-  reinterpret_cast <gcc::jit::recording::global *> (global)
-    ->set_initializer_value (value);
 }
 
 /* Public entrypoint.  See description in libgccjit.h.

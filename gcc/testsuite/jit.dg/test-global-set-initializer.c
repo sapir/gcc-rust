@@ -21,7 +21,6 @@ create_code (gcc_jit_context *ctxt, void *user_data)
      signed char bin_blob1[] = { 0xc, 0xa, 0xf, 0xf, 0xe };
      unsigned bin_blob2[] = { 0x3, 0x2, 0x1, 0x0, 0x1, 0x2, 0x3 };
      unsigned char bin_blob3[4096]...
-     unsigned int integer = 42;
   */
   gcc_jit_type *unsigned_char_type =
     gcc_jit_context_get_type (ctxt, GCC_JIT_TYPE_UNSIGNED_CHAR);
@@ -57,16 +56,6 @@ create_code (gcc_jit_context *ctxt, void *user_data)
 				      sizeof (test_blob3)),
       "bin_blob3");
   gcc_jit_global_set_initializer (glob, test_blob3, sizeof (test_blob3));
-
-  gcc_jit_rvalue *forty_two = gcc_jit_context_new_rvalue_from_int (
-      ctxt, unsigned_type, 42);
-
-  glob =
-    gcc_jit_context_new_global (
-      ctxt, NULL, GCC_JIT_GLOBAL_EXPORTED,
-      unsigned_type,
-      "integer");
-  gcc_jit_global_set_initializer_value (glob, forty_two);
 }
 
 void
@@ -86,8 +75,4 @@ verify_code (gcc_jit_context *ctxt, gcc_jit_result *result)
   CHECK_NON_NULL (glob);
   CHECK_VALUE (memcmp (test_blob3, glob, sizeof (test_blob3)), 0);
 
-  glob = gcc_jit_result_get_global (result, "integer");
-  CHECK_NON_NULL (glob);
-  int *value = glob;
-  CHECK_VALUE (*value, 42);
 }
