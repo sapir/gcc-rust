@@ -669,7 +669,9 @@ gcc_jit_type_is_function_ptr_type (gcc_jit_type *type)
 {
   RETURN_NULL_IF_FAIL (type, NULL, NULL, "NULL type");
   gcc::jit::recording::type *func_ptr_type = type->dereference ();
-  RETURN_NULL_IF_FAIL (func_ptr_type, NULL, NULL, "NULL type");
+  if (!func_ptr_type) {
+    return NULL;
+  }
 
   return (gcc_jit_function_type *)func_ptr_type->dyn_cast_function_type ();
 }
