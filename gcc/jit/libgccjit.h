@@ -1290,6 +1290,12 @@ extern void
 gcc_jit_block_end_with_void_return (gcc_jit_block *block,
 				    gcc_jit_location *loc);
 
+extern void
+gcc_jit_block_wrap_with_try (gcc_jit_block *block,
+			     gcc_jit_location *loc,
+			     gcc_jit_block *on_success,
+			     gcc_jit_block *on_exception);
+
 /* Create a new gcc_jit_case instance for use in a switch statement.
    min_value and max_value must be constants of integer type.
 

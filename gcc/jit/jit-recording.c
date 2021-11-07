@@ -4430,6 +4430,22 @@ recording::block::end_with_conditional (recording::location *loc,
   return result;
 }
 
+recording::statement *
+recording::block::wrap_with_try (recording::location *loc,
+				 recording::block *on_success,
+				 recording::block *on_exception)
+{
+  statement *result = new jump (this, loc, on_success);
+  m_ctxt->record (result);
+  m_statements.safe_push (result);
+
+  m_on_exception = on_exception;
+
+  m_has_been_terminated = true;
+
+  return result;
+}
+
 /* Create a recording::end_with_jump instance and add it to
    the block's context's list of mementos, and to the block's
    list of statements.
@@ -4607,7 +4623,11 @@ recording::block::get_successor_blocks () const
   gcc_assert (m_has_been_terminated);
   statement *last_statement = get_last_statement ();
   gcc_assert (last_statement);
-  return last_statement->get_successor_blocks ();
+  vec <block *> blocks = last_statement->get_successor_blocks ();
+  if (m_on_exception) {
+    blocks.safe_push(m_on_exception);
+  }
+  return blocks;
 }
 
 /* Implementation of pure virtual hook recording::memento::replay_into
@@ -4617,7 +4637,8 @@ void
 recording::block::replay_into (replayer *)
 {
   set_playback_obj (m_func->playback_function ()
-		      ->new_block (playback_string (m_name)));
+		      ->new_block (playback_string (m_name),
+		      		   recording::playback_block (m_on_exception)));
 }
 
 /* Implementation of recording::memento::make_debug_string for
@@ -4645,6 +4666,9 @@ recording::block::write_reproducer (reproducer &r)
 	   id,
 	   r.get_identifier (m_func),
 	   m_name ? m_name->get_debug_string () : "NULL");
+  if (m_on_exception) {
+    // TODO - output this after all statements
+  }
 }
 
 /* Disable warnings about missing quoting in GCC diagnostics for

@@ -2618,7 +2618,7 @@ gcc_jit_block_end_with_conditional (gcc_jit_block *block,
    boolval->get_debug_string (),
    boolval->get_type ()->get_debug_string ());
   RETURN_IF_FAIL (on_true, ctxt, loc, "NULL on_true");
-  RETURN_IF_FAIL (on_true, ctxt, loc, "NULL on_false");
+  RETURN_IF_FAIL (on_false, ctxt, loc, "NULL on_false");
   RETURN_IF_FAIL_PRINTF4 (
     block->get_function () == on_true->get_function (),
     ctxt, loc,
@@ -2648,6 +2648,42 @@ gcc_jit_block_end_with_conditional (gcc_jit_block *block,
      can contain a stringified version of "stmt", whilst appearing
      as close as possible to the point of failure.  */
   boolval->verify_valid_within_stmt (__func__, stmt);
+}
+
+void
+gcc_jit_block_wrap_with_try (gcc_jit_block *block,
+			     gcc_jit_location *loc,
+			     gcc_jit_block *on_success,
+			     gcc_jit_block *on_exception)
+{
+  RETURN_IF_NOT_VALID_BLOCK (block, loc);
+  gcc::jit::recording::context *ctxt = block->get_context ();
+  JIT_LOG_FUNC (ctxt->get_logger ());
+  /* LOC can be NULL.  */
+  RETURN_IF_FAIL (on_success, ctxt, loc, "NULL on_success");
+  RETURN_IF_FAIL (on_exception, ctxt, loc, "NULL on_exception");
+  RETURN_IF_FAIL_PRINTF4 (
+    block->get_function () == on_success->get_function (),
+    ctxt, loc,
+    "\"on_success\" block is not in same function:"
+    " source block %s is in function %s"
+    " whereas target block %s is in function %s",
+    block->get_debug_string (),
+    block->get_function ()->get_debug_string (),
+    on_success->get_debug_string (),
+    on_success->get_function ()->get_debug_string ());
+  RETURN_IF_FAIL_PRINTF4 (
+    block->get_function () == on_exception->get_function (),
+    ctxt, loc,
+    "\"on_exception\" block is not in same function:"
+    " source block %s is in function %s"
+    " whereas target block %s is in function %s",
+    block->get_debug_string (),
+    block->get_function ()->get_debug_string (),
+    on_exception->get_debug_string (),
+    on_exception->get_function ()->get_debug_string ());
+
+  block->wrap_with_try (loc, on_success, on_exception);
 }
 
 /* Public entrypoint.  See description in libgccjit.h.

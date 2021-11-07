@@ -1682,11 +1682,11 @@ new_local (location *loc,
 
 playback::block *
 playback::function::
-new_block (const char *name)
+new_block (const char *name, block *on_exception)
 {
   gcc_assert (m_kind != GCC_JIT_FUNCTION_IMPORTED);
 
-  block *result = new playback::block (this, name);
+  block *result = new playback::block (this, name, on_exception);
   m_blocks.safe_push (result);
   return result;
 }
@@ -1723,13 +1723,32 @@ build_stmt_list ()
       int j;
       tree stmt;
 
+      tree try_block_stmts = NULL;
+      tree_stmt_iterator try_block_stmt_iter;
+      tree_stmt_iterator *block_stmt_iter = &m_stmt_iter;
+      if (b->m_on_exception != NULL) {
+        try_block_stmts = alloc_stmt_list();
+        try_block_stmt_iter = tsi_start(try_block_stmts);
+      }
+
       b->m_label_expr = build1 (LABEL_EXPR,
 				void_type_node,
 				b->as_label_decl ());
-      tsi_link_after (&m_stmt_iter, b->m_label_expr, TSI_CONTINUE_LINKING);
+      tsi_link_after (block_stmt_iter, b->m_label_expr, TSI_CONTINUE_LINKING);
 
       FOR_EACH_VEC_ELT (b->m_stmts, j, stmt)
-	tsi_link_after (&m_stmt_iter, stmt, TSI_CONTINUE_LINKING);
+	tsi_link_after (block_stmt_iter, stmt, TSI_CONTINUE_LINKING);
+
+      if (b->m_on_exception != NULL) {
+	tree catch_stmt = build1 (GOTO_EXPR,
+				  void_type_node,
+				  b->m_on_exception->as_label_decl());
+	tree try_stmt = build2 (TRY_CATCH_EXPR,
+				void_type_node,
+				try_block_stmts,
+				catch_stmt);
+	tsi_link_after (&m_stmt_iter, try_stmt, TSI_CONTINUE_LINKING);
+      }
     }
 }
 
@@ -1914,6 +1933,39 @@ add_conditional (location *loc,
     set_tree_location (stmt, loc);
   add_stmt (stmt);
 }
+
+/* Add ... TODO ... */
+
+/* TODO:
+void
+playback::block::
+add_try_catch (location *loc,
+	       block *on_success,
+	       block *on_exception)
+{
+  gcc_assert (on_success);
+  gcc_assert (on_exception);
+
+  tree success_jump = build1 (GOTO_EXPR, void_type_node,
+			      on_success->as_label_decl ());
+  if (loc)
+    set_tree_location (success_jump, loc);
+
+  tree exception_jump = build1 (GOTO_EXPR, void_type_node,
+				on_exception->as_label_decl ());
+  if (loc)
+    set_tree_location (exception_jump, loc);
+
+  tree try_body = build2(COMPOUND_EXPR, void_type_node,
+  			 tryexpr->as_tree(), success_jump);
+
+  tree stmt =
+    build2 (TRY_CATCH_EXPR, void_type_node, try_body, exception_jump);
+  if (loc)
+    set_tree_location (stmt, loc);
+  add_stmt (stmt);
+}
+*/
 
 /* Add an unconditional jump statement to the function's statement list.  */
 
@@ -2149,9 +2201,11 @@ playback::block::add_extended_asm (location *loc,
 
 playback::block::
 block (function *func,
-       const char *name)
+       const char *name,
+       block *on_exception)
 : m_func (func),
-  m_stmts ()
+  m_stmts (),
+  m_on_exception (on_exception)
 {
   tree identifier;
 

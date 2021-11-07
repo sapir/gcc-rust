@@ -1292,7 +1292,8 @@ public:
     m_name (name),
     m_statements (),
     m_has_been_terminated (false),
-    m_is_reachable (false)
+    m_is_reachable (false),
+    m_on_exception (NULL)
   {
   }
 
@@ -1332,6 +1333,11 @@ public:
 			rvalue *boolval,
 			block *on_true,
 			block *on_false);
+
+  statement *
+  wrap_with_try (location *loc,
+		 block *on_success,
+		 block *on_exception);
 
   statement *
   end_with_jump (location *loc,
@@ -1388,6 +1394,7 @@ private:
   auto_vec<statement *> m_statements;
   bool m_has_been_terminated;
   bool m_is_reachable;
+  block *m_on_exception;
 
   friend class function;
 };

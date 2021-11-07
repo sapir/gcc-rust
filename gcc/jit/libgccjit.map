@@ -252,3 +252,8 @@ LIBGCCJIT_ABI_21 {
     gcc_jit_context_new_rvalue_from_struct;
     gcc_jit_context_new_rvalue_from_array;
 } LIBGCCJIT_ABI_20;
+
+LIBGCCJIT_ABI_22 {
+  global:
+    gcc_jit_block_wrap_with_try;
+} LIBGCCJIT_ABI_21;

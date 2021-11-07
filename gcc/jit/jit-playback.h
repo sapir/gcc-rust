@@ -499,7 +499,7 @@ public:
 	     const char *name);
 
   block*
-  new_block (const char *name);
+  new_block (const char *name, block *on_exception);
 
   rvalue *
   get_address (location *loc);
@@ -562,7 +562,8 @@ class block : public wrapper
 {
 public:
   block (function *func,
-	 const char *name);
+	 const char *name,
+	 block *on_exception);
 
   void finalizer () FINAL OVERRIDE;
 
@@ -634,6 +635,7 @@ private:
   function *m_func;
   tree m_label_decl;
   vec<tree> m_stmts;
+  block *m_on_exception;
 
 public: // for now
   tree m_label_expr;
